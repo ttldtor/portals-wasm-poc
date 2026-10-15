@@ -38,7 +38,8 @@ for (const method of ['mouse', 'touchscreen']) {
     await activate('Alerts');
     await expect(screen).toContainText('[ ] Alerts');
     await activate('Run something');
-    await expect.poll(() => screen.textContent(), { intervals: [30] }).toContain('s(O)mething');
+    // Screen-reader rows are throttled to 1s; observe the actual 300ms animation frame.
+    await expect.poll(() => page.locator('.xterm-rows').textContent(), { intervals: [30] }).toContain('s(O)mething');
     await expect(page.locator('.xterm-cursor')).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath(`${method}-gallery.png`) });
     await activate('Quit');
