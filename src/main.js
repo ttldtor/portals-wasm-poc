@@ -8,16 +8,13 @@ import { createTerminalBridge } from './terminal_bridge.js';
 import { createTelegramHost } from './telegram_host.js';
 import { createTouchInput } from './touch_input.js';
 
-const DEFAULT_FONT_SIZE = 16;
+const DEFAULT_FONT_SIZE = 18;
 const MIN_FONT_SIZE = 10;
-const GALLERY_COLUMNS = 40;
-const GALLERY_ROWS = 6;
+const GALLERY_COLUMNS = 22;
+const GALLERY_ROWS = 11;
 const RUNTIME_VERSION = __PORTALS_RUNTIME_VERSION__;
 const status = document.querySelector('#status');
 const container = document.querySelector('#terminal');
-const themeButton = document.querySelector('#theme-toggle');
-const actionResult = document.querySelector('#action-result');
-let runs = 0;
 let module;
 let active = false;
 let closed = false;
@@ -30,8 +27,16 @@ const terminal = new Terminal({ cursorBlink: false, scrollback: 0, fontSize: DEF
 const fit = new FitAddon();
 terminal.loadAddon(fit);
 terminal.open(container);
+terminal.attachCustomKeyEventHandler(event => {
+  // Screen reader mode leaves Shift+Tab's browser default enabled in xterm.
+  // Keep navigation in the scene while xterm sends its usual Tab/CSI Z bytes.
+  if (active && !suspended && event.type === 'keydown' && event.key === 'Tab' &&
+      !event.ctrlKey && !event.altKey && !event.metaKey) event.preventDefault();
+  return true;
+});
+// Alternate screen prevents xterm's scrollback reflow from shifting TUI rows on resize.
 // Portals paints its own focus; hide xterm's independent terminal cursor (DECTCEM).
-terminal.write('\x1b[?25l');
+terminal.write('\x1b[?1049h\x1b[?25l');
 resizeTerminal();
 
 const bridge = createTerminalBridge(terminal);
@@ -46,7 +51,6 @@ function scheduleStep() {
 
 function setSuspended(value) {
   suspended = value;
-  themeButton.disabled = !active || suspended;
   touchInput?.cancel();
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
@@ -64,7 +68,6 @@ function finish(error) {
   if (closed) return;
   closed = true;
   active = false;
-  themeButton.disabled = true;
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
   host.dispose();
@@ -98,10 +101,7 @@ async function start() {
   const { default: createGallery } = await import(runtimeUrl('./portals-gallery.js'));
   if (closed) return;
   module = await createGallery({ noInitialRun: true, locateFile: runtimeUrl,
-    portalsWrite: bytes => bridge.write(bytes),
-    portalsRun() {
-      if (active && !suspended) actionResult.textContent = `Run completed · ${++runs}`;
-    } });
+    portalsWrite: bytes => bridge.write(bytes) });
   if (closed) {
     module._portals_shutdown();
     return;
@@ -111,10 +111,6 @@ async function start() {
   }
 
   active = true;
-  themeButton.disabled = suspended;
-  const changeTheme = () => sendInput('\x1bOQ');
-  themeButton.addEventListener('click', changeTheme);
-  listeners.push({ dispose() { themeButton.removeEventListener('click', changeTheme); } });
   listeners.push(terminal.onData(sendInput));
   touchInput = createTouchInput(terminal, sendInput, () => active && !suspended);
   listeners.push(touchInput);
@@ -131,7 +127,7 @@ async function start() {
   resizeObserver = new ResizeObserver(() => { if (active) resizeTerminal(); });
   resizeObserver.observe(container);
   status.dataset.state = 'running';
-  status.textContent = 'Running — Click or tap controls. Tab / Enter also work; F2 changes theme.';
+  status.textContent = 'Click or tap controls. Tab / Shift+Tab move focus; Enter activates. F2: theme · F10: quit. Run animates once.';
   terminal.focus();
   host.ready();
   scheduleStep();

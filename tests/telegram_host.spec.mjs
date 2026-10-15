@@ -67,7 +67,7 @@ test('unavailable Telegram SDK still permits the standalone gallery', async ({ p
   await expect(page.locator('html')).toHaveAttribute('data-host', 'browser');
 });
 
-test('keyboard viewport keeps gallery controls and feedback inside the visible height', async ({ page }, testInfo) => {
+test('keyboard viewport keeps all gallery controls inside the visible height', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await mockTelegram(page);
   await page.goto('./');
@@ -77,9 +77,10 @@ test('keyboard viewport keeps gallery controls and feedback inside the visible h
     visualViewport.dispatchEvent(new Event('resize'));
   });
   await expect(page.locator('body')).toHaveCSS('height', '350px');
-  await expect(page.locator('.xterm-rows')).toContainText('Name (Enter commits; Tab changes focus):');
+  await expect(page.locator('.xterm-rows')).toContainText('Name :');
+  await expect(page.locator('.xterm-rows')).toContainText('(S)omething');
   await expect.poll(async () => {
-    const box = await page.locator('.xterm-rows > div').nth(5).boundingBox();
+    const box = await page.locator('.xterm-rows > div').nth(10).boundingBox();
     return box.y + box.height;
   }).toBeLessThan(350);
   const status = await page.locator('#status').boundingBox();

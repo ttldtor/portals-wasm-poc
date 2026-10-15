@@ -46,8 +46,7 @@ test('real gallery accepts text, changes theme, resizes and quits', async ({ pag
   await input.press('Tab');
   await input.press('Enter');
   await expect(page.locator('#status')).toHaveAttribute('data-state', 'running');
-  await input.press('Tab');
-  await input.press('Enter');
+  await input.press('F10');
   await expect(page.locator('#status')).toHaveAttribute('data-state', 'finished');
   await expect(screen).toContainText('Portals gallery');
   await page.setViewportSize({ width: 900, height: 700 });

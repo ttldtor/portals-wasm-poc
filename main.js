@@ -9333,16 +9333,13 @@ function createTouchInput(terminal2, sendInput2, isActive) {
 }
 
 // src/main.js
-var DEFAULT_FONT_SIZE = 16;
+var DEFAULT_FONT_SIZE = 18;
 var MIN_FONT_SIZE = 10;
-var GALLERY_COLUMNS = 40;
-var GALLERY_ROWS = 6;
-var RUNTIME_VERSION = "202be6a2f03e9f30f52ebd526e62bf8a9e8894e03c1932c185c99c6330e97550";
+var GALLERY_COLUMNS = 22;
+var GALLERY_ROWS = 11;
+var RUNTIME_VERSION = "1141e201285aaeaeff53f53b96958a19a8b40b895550ad104894bca37652c5af";
 var status = document.querySelector("#status");
 var container = document.querySelector("#terminal");
-var themeButton = document.querySelector("#theme-toggle");
-var actionResult = document.querySelector("#action-result");
-var runs = 0;
 var module;
 var active = false;
 var closed = false;
@@ -9355,7 +9352,11 @@ var terminal = new Dl({ cursorBlink: false, scrollback: 0, fontSize: DEFAULT_FON
 var fit = new o();
 terminal.loadAddon(fit);
 terminal.open(container);
-terminal.write("\x1B[?25l");
+terminal.attachCustomKeyEventHandler((event) => {
+  if (active && !suspended && event.type === "keydown" && event.key === "Tab" && !event.ctrlKey && !event.altKey && !event.metaKey) event.preventDefault();
+  return true;
+});
+terminal.write("\x1B[?1049h\x1B[?25l");
 resizeTerminal();
 var bridge = createTerminalBridge(terminal);
 var encoder = new TextEncoder();
@@ -9367,7 +9368,6 @@ function scheduleStep() {
 }
 function setSuspended(value) {
   suspended = value;
-  themeButton.disabled = !active || suspended;
   touchInput?.cancel();
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
@@ -9383,7 +9383,6 @@ function finish(error) {
   if (closed) return;
   closed = true;
   active = false;
-  themeButton.disabled = true;
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
   host.dispose();
@@ -9416,10 +9415,7 @@ async function start() {
   module = await createGallery({
     noInitialRun: true,
     locateFile: runtimeUrl,
-    portalsWrite: (bytes) => bridge.write(bytes),
-    portalsRun() {
-      if (active && !suspended) actionResult.textContent = `Run completed \xB7 ${++runs}`;
-    }
+    portalsWrite: (bytes) => bridge.write(bytes)
   });
   if (closed) {
     module._portals_shutdown();
@@ -9429,12 +9425,6 @@ async function start() {
     throw new Error(messageFromWasm());
   }
   active = true;
-  themeButton.disabled = suspended;
-  const changeTheme = () => sendInput("\x1BOQ");
-  themeButton.addEventListener("click", changeTheme);
-  listeners.push({ dispose() {
-    themeButton.removeEventListener("click", changeTheme);
-  } });
   listeners.push(terminal.onData(sendInput));
   touchInput = createTouchInput(terminal, sendInput, () => active && !suspended);
   listeners.push(touchInput);
@@ -9452,7 +9442,7 @@ async function start() {
   });
   resizeObserver.observe(container);
   status.dataset.state = "running";
-  status.textContent = "Running \u2014 Click or tap controls. Tab / Enter also work; F2 changes theme.";
+  status.textContent = "Click or tap controls. Tab / Shift+Tab move focus; Enter activates. F2: theme \xB7 F10: quit. Run animates once.";
   terminal.focus();
   host.ready();
   scheduleStep();

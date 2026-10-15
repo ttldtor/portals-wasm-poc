@@ -249,19 +249,6 @@ h1 {
   font-size: 1.4rem;
   margin: 0;
 }
-button {
-  font: inherit;
-  padding: .4rem .85rem;
-  border-radius: .4rem;
-  border: 1px solid var(--poc-border, #35435b);
-  background: var(--poc-background, #11151c);
-  color: inherit;
-  cursor: pointer;
-}
-button:disabled {
-  opacity: .5;
-  cursor: default;
-}
 header p {
   margin: 0;
 }

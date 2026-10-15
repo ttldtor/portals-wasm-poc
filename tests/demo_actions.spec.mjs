@@ -1,26 +1,51 @@
 // Copyright (c) 2026 ttldtor. SPDX-License-Identifier: BSL-1.0
 import { test, expect } from '@playwright/test';
+import { activateControl, controlPoint, galleryRow } from './gallery_helpers.mjs';
 
 test.use({ hasTouch: true });
-
 test.beforeEach(async ({ page }) => {
   await page.route('https://telegram.org/js/**', route => route.fulfill({ contentType: 'application/javascript', body: '' }));
   await page.goto('./');
   await expect(page.locator('#status')).toHaveAttribute('data-state', 'running');
-  await expect(page.locator('.xterm-rows')).toContainText('Name (Enter commits; Tab changes focus):');
 });
 
-test('Run feedback failure reports an error and permits safe shutdown', async ({ page }) => {
-  const errors = [];
-  page.on('pageerror', error => errors.push(error.message));
-  await page.locator('#action-result').evaluate(element => {
-    Object.defineProperty(element, 'textContent', { set() { throw new Error('Run feedback failed'); } });
-  });
-  const row = await page.locator('.xterm-rows > div').nth(4).boundingBox();
-  await page.mouse.click(row.x + 12, row.y + row.height / 2);
-  await expect(page.locator('#status')).toHaveAttribute('data-state', 'error');
-  await expect(page.getByRole('button', { name: 'Theme', exact: true })).toBeDisabled();
-  expect(errors).toEqual([]);
+test('gallery has an in-terminal header, actions, inline editor and explicit blank rows', async ({ page }) => {
+  const rows = page.locator('.xterm-rows > div');
+  await expect(rows.nth(10)).toContainText('(S)omething');
+  expect((await rows.allTextContents()).slice(0, 11).map(text => text.trimEnd())).toEqual([
+    ' Portals gallery', '=================', '[ Theme |   F2  ]', '[ Quit  |   F10 ]', '',
+    'Name : Portals', '[ ] Alerts', '', '[ Run something ]', '', '   (S)omething'
+  ]);
+  await expect(page.locator('#theme-toggle, #action-result')).toHaveCount(0);
+  const header = rows.nth(0).locator('span').filter({ hasText: 'Portals gallery' });
+  const background = await header.evaluate(element => getComputedStyle(element).backgroundColor);
+  expect(background).not.toBe('rgba(0, 0, 0, 0)');
+  expect(background).not.toBe(await rows.nth(1).locator('span').first().evaluate(element => getComputedStyle(element).backgroundColor));
+});
+
+test('Run animates forward and backward once, ignores activation while disabled, and can restart', async ({ page }) => {
+  await activateControl(page, 'Run something');
+  const frames = ['(S)omething', 's(O)mething', 'so(M)ething', 'som(E)thing', 'some(T)hing',
+    'somet(H)ing', 'someth(I)ng', 'somethi(N)g', 'somethin(G)', 'somethi(N)g',
+    'someth(I)ng', 'somet(H)ing', 'some(T)hing', 'som(E)thing', 'so(M)ething', 's(O)mething', '(S)omething'];
+  const row = page.locator('.xterm-rows > div').nth(10);
+  await expect(row).toContainText(frames[0]);
+  const started = Date.now();
+  for (const [index, frame] of frames.slice(1).entries()) {
+    await expect.poll(() => row.textContent(), { intervals: [30], timeout: 1100 }).toContain(frame);
+    if (index === 2) await activateControl(page, 'Run something');
+  }
+  expect(Date.now() - started).toBeGreaterThanOrEqual(4000);
+  expect(Date.now() - started).toBeLessThan(6500);
+  await page.waitForTimeout(650);
+  await expect(row).toContainText('(S)omething');
+  await activateControl(page, 'Run something');
+  await expect.poll(() => row.textContent(), { intervals: [30], timeout: 1100 }).toContain('s(O)mething');
+  await page.locator('.xterm-helper-textarea').press('F10');
+  await expect(page.locator('#status')).toHaveAttribute('data-state', 'finished');
+  const final = await row.textContent();
+  await page.waitForTimeout(500);
+  expect(await row.textContent()).toBe(final);
 });
 
 test('loader and WASM use matching versioned cache keys', async ({ page }) => {
@@ -38,33 +63,45 @@ test('loader and WASM use matching versioned cache keys', async ({ page }) => {
   expect(new URL(await page.locator('script[type="module"]').getAttribute('src'), page.url()).searchParams.get('v')).toMatch(/^[a-f0-9]{64}$/);
 });
 
+test('editor input and theme remain responsive while Run is disabled', async ({ page }) => {
+  await activateControl(page, 'Run something');
+  await expect.poll(() => page.locator('.xterm-rows > div').nth(10).textContent(), { intervals: [30] }).toContain('s(O)mething');
+  const editor = await controlPoint(page, 'Portals', 'Name :');
+  await page.mouse.click(editor.x, editor.y);
+  await page.locator('.xterm-helper-textarea').pressSequentially(' active');
+  await expect(galleryRow(page, 'Name :')).toContainText('Portals active');
+  await page.locator('.xterm-helper-textarea').press('Enter');
+  await activateControl(page, 'Theme');
+  await expect(page.locator('#status')).toHaveAttribute('data-state', 'running');
+  // From Alerts, disabled Run is skipped and the next Tab reaches Theme.
+  await activateControl(page, 'Alerts');
+  await page.locator('.xterm-helper-textarea').press('Tab');
+  await page.locator('.xterm-helper-textarea').press('Tab');
+  await page.locator('.xterm-helper-textarea').press('Enter');
+  await expect(page.locator('#status')).toHaveAttribute('data-state', 'finished');
+});
+
 for (const touch of [false, true]) {
-  test(`Theme and real Run feedback work with ${touch ? 'touch' : 'mouse'}`, async ({ page }) => {
-    const theme = page.getByRole('button', { name: 'Theme', exact: true });
+  test(`terminal Theme and Quit work with ${touch ? 'touch' : 'mouse'}`, async ({ page }) => {
     const before = await page.locator('#terminal').screenshot();
-    if (touch) await theme.tap();
-    else await theme.click();
+    await activateControl(page, 'Theme', touch);
     await expect.poll(async () => (await page.locator('#terminal').screenshot()).equals(before)).toBe(false);
-    const row = await page.locator('.xterm-rows > div').nth(4).boundingBox();
-    if (touch) await page.touchscreen.tap(row.x + 12, row.y + row.height / 2);
-    else await page.mouse.click(row.x + 12, row.y + row.height / 2);
-    await expect(page.locator('#action-result')).toHaveText('Run completed · 1');
-    await page.locator('.xterm-helper-textarea').press('Enter');
-    await expect(page.locator('#action-result')).toHaveText('Run completed · 2');
-    await page.locator('.xterm-helper-textarea').press('F10');
-    await expect(theme).toBeDisabled();
+    await activateControl(page, 'Run something', touch);
+    await expect.poll(() => page.locator('.xterm-rows > div').nth(10).textContent(), { intervals: [30] }).toContain('s(O)mething');
+    await activateControl(page, 'Quit', touch);
+    await expect(page.locator('#status')).toHaveAttribute('data-state', 'finished');
   });
 }
 
-test('full gallery lines fit a phone and recover the desktop font after resizing', async ({ page }, testInfo) => {
+test('gallery fits a phone and recovers desktop size', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 360, height: 640 });
-  await expect(page.locator('.xterm-rows')).toContainText('Name (Enter commits; Tab changes focus):');
-  await expect(page.locator('.xterm-rows')).toContainText('Portals gallery | F2 theme | F10 quit');
-  await expect(page.getByRole('button', { name: 'Theme', exact: true })).toBeInViewport();
-  await expect(page.locator('#status')).toBeInViewport();
+  const rows = page.locator('.xterm-rows > div');
+  await expect(rows.nth(10)).toContainText('(S)omething');
   await page.screenshot({ path: testInfo.outputPath('phone-fit.png') });
-  const phoneRow = await page.locator('.xterm-rows > div').first().boundingBox();
+  const phoneRow = await rows.first().boundingBox();
   await page.setViewportSize({ width: 1100, height: 800 });
-  await expect.poll(async () => (await page.locator('.xterm-rows > div').first().boundingBox()).height).toBeGreaterThan(phoneRow.height);
-  await expect(page.locator('.xterm-rows')).toContainText('Name (Enter commits; Tab changes focus):');
+  await expect.poll(async () => (await rows.first().boundingBox()).height).toBeGreaterThanOrEqual(phoneRow.height);
+  await page.screenshot({ path: testInfo.outputPath('desktop-fit.png') });
+  await expect(galleryRow(page, 'Name :')).toContainText('Portals');
+  await expect(page.locator('#status')).toBeInViewport();
 });

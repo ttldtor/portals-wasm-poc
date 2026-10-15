@@ -7,11 +7,14 @@
   "runtime_patch": "source/portals-wasm-poc.patch",
   "runtime_patch_sha256": "0a38d601480fbb8ced77834e62591cd8a469b200102a7ba7361f905232a2614d",
   "toolchain": "Emscripten 6.0.12, native Wasm exceptions; no Asyncify/JSPI/pthreads",
-  "portals_gallery_wasm_sha256": "5fa1d4786d6003e3490ba2eb051cbc584ecb869efe29369fa80c380ced04f159",
-  "portals_gallery_loader_sha256": "dba4a86a52e18a5fa8f7ed2d54a61fea006867c4cd0b581ed253d1439ca7fbcd",
+  "portals_gallery_wasm_sha256": "9f6bc81e390651d89599be204abef6825915ac2ca0736baa102a463096d8c4b0",
+  "portals_gallery_loader_sha256": "b32b5bdd122c4651a11a538a42fdea353dfdcd9f8b2e7f2b01fe9d0405712c5c",
   "runtime_verification": "PRTLS-140: Windows/MSVC Debug/Release164 each, SDK smoke, Chromium browser6 each; native examples27 unchanged.",
-  "telegram_verification": "User reported working taps and text entry on physical Android (PRTLS-147 screenshot); updated responsive layout and other clients require device retesting. Simulated SDK checks are separate.",
+  "telegram_verification": "User confirmed PRTLS-147 fits and works on physical Android; current redesigned gallery requires physical device retesting. Chromium SDK/viewport simulations are separate.",
   "runtime_host_patch": "source/browser-run-feedback.patch",
   "runtime_host_patch_sha256": "bfb8a7d5ed9d6c65ca64b2e4ebf43590d56f53881232eaea1bef83facf2c613a",
-  "runtime_host_verification": "PRTLS-147: rebuilt changed runtime with Emscripten 6.0.12; Debug/Release builds, SDK Node smoke, optional Run callback, callback failure and safe shutdown; native examples27 byte-identical to v0.3.0 archive. PRTLS-140 verification describes the base runtime, not these changed binaries."
+  "runtime_host_verification": "PRTLS-147: rebuilt changed runtime with Emscripten 6.0.12; Debug/Release builds, SDK Node smoke, optional Run callback, callback failure and safe shutdown; native examples27 byte-identical to v0.3.0 archive. PRTLS-140 verification describes the base runtime, not these changed binaries.",
+  "runtime_demo_patch": "source/gallery-demo.patch",
+  "runtime_demo_patch_sha256": "dfaf1836678bfa3b2b977692af19ab1774e8086cbcf56283d4b61d496738bde4",
+  "runtime_demo_verification": "PRTLS-148: Debug/Release Emscripten builds and SDK Node smoke; Chromium23/23 local, Node15/15; all16 animation transitions and restart, input while disabled, reverse focus, mouse/touch, resize and lifecycle. Three-patch replay from exactv0.3.0 and27nativeexample raw hashes verified; bounded independent lifetime review. Historical PRTLS-140/147 qualification refers to older binaries."
 }
