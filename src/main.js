@@ -20,6 +20,8 @@ const terminal = new Terminal({ cursorBlink: false, scrollback: 0, fontSize: 16,
 const fit = new FitAddon();
 terminal.loadAddon(fit);
 terminal.open(container);
+// Portals paints its own focus; hide xterm's independent terminal cursor (DECTCEM).
+terminal.write('\x1b[?25l');
 fit.fit();
 
 const bridge = createTerminalBridge(terminal);

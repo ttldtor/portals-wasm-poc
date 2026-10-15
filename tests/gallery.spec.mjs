@@ -18,6 +18,7 @@ test('real gallery accepts text, changes theme, resizes and quits', async ({ pag
   await page.screenshot({ path: testInfo.outputPath('gallery-initial.png') });
   const input = page.locator('.xterm-helper-textarea');
   await input.focus();
+  await expect(page.locator('.xterm-cursor')).toHaveCount(0);
   await input.pressSequentially(' WASM');
   await input.evaluate(element => {
     const data = new DataTransfer();
@@ -36,6 +37,7 @@ test('real gallery accepts text, changes theme, resizes and quits', async ({ pag
   await expect(page.locator('.xterm-rows')).toContainText('Portals gallery');
   await expect(screen).toContainText('Portals gallery');
   // xterm schedules its DOM paint separately from buffer/accessibility updates.
+  await expect(page.locator('.xterm-cursor')).toHaveCount(0);
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await page.screenshot({ path: testInfo.outputPath('gallery-interactive.png') });
   await input.press('Tab');

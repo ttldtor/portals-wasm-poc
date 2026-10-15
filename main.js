@@ -9266,6 +9266,7 @@ var terminal = new Dl({ cursorBlink: false, scrollback: 0, fontSize: 16, screenR
 var fit = new o();
 terminal.loadAddon(fit);
 terminal.open(container);
+terminal.write("\x1B[?25l");
 fit.fit();
 var bridge = createTerminalBridge(terminal);
 var encoder = new TextEncoder();
