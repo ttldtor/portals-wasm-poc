@@ -131,7 +131,7 @@
 +    editorConfig.options.editMode = EditMode::EXPLICIT;
 +    editorConfig.policy.width.mode = SizeMode::FLEX;
 +
-+    auto nameRow = ui::hbox(LinearOptions{.gap = 1}, ui::label("Name :"),
++    auto nameRow = ui::hbox(ui::label("Name : "),
 +                            ui::lineEdit(editor_, "Portals", editorConfig));
 +    auto themeButton = ui::button("Theme |   F2 ", [this] {
 +      changeTheme();

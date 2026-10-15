@@ -23,6 +23,22 @@ test('gallery has an in-terminal header, actions, inline editor and explicit bla
   expect(background).not.toBe(await rows.nth(1).locator('span').first().evaluate(element => getComputedStyle(element).backgroundColor));
 });
 
+test('Name separator uses the label background in every gallery theme', async ({ page }, testInfo) => {
+  const row = galleryRow(page, 'Name :');
+  const cells = () => row.evaluate(element => [...element.querySelectorAll('span')].flatMap(span =>
+    [...span.textContent].map(text => ({ text, background: getComputedStyle(span).backgroundColor }))));
+  for (const theme of ['modern', 'turbo', 'nord', 'gruvbox', 'tokyo-night', 'catppuccin-latte']) {
+    const colors = await cells();
+    expect(colors.slice(0, 8).map(cell => cell.text).join('')).toBe('Name : P');
+    expect(colors[6].background, `${theme}: separator matches label`).toBe(colors[5].background);
+    if (theme === 'modern' || theme === 'catppuccin-latte') {
+      await page.screenshot({ path: testInfo.outputPath(`name-separator-${theme}.png`) });
+    }
+    await page.locator('.xterm-helper-textarea').press('F2');
+    await expect.poll(async () => (await cells())[5].background).not.toBe(colors[5].background);
+  }
+});
+
 test('Run animates forward and backward once, ignores activation while disabled, and can restart', async ({ page }) => {
   await activateControl(page, 'Run something');
   const frames = ['(S)omething', 's(O)mething', 'so(M)ething', 'som(E)thing', 'some(T)hing',
