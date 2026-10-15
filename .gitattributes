@@ -1,0 +1,4 @@
+# Preserve the verified runtime artifacts and significant patch context bytes.
+portals-gallery.js -text
+portals-gallery.wasm -text
+source/*.patch -text -whitespace

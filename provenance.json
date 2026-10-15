@@ -1,0 +1,14 @@
+{
+  "project": "Portals WASM gallery POC",
+  "task": "PRTLS-142",
+  "base_release": "v0.3.0",
+  "base_commit": "080e5ea63bb813a97b996b156c7a5d9b5ee1d114",
+  "runtime_status": "Unreleased experimental extension of v0.3.0; not the unmodified release.",
+  "runtime_patch": "source/portals-wasm-poc.patch",
+  "runtime_patch_sha256": "0a38d601480fbb8ced77834e62591cd8a469b200102a7ba7361f905232a2614d",
+  "toolchain": "Emscripten 6.0.12, native Wasm exceptions; no Asyncify/JSPI/pthreads",
+  "portals_gallery_wasm_sha256": "4ff03ebc0888096e9dde6600cf8f3bd020f77b5bef9e96836244f1c90d49352e",
+  "portals_gallery_loader_sha256": "b32b5bdd122c4651a11a538a42fdea353dfdcd9f8b2e7f2b01fe9d0405712c5c",
+  "runtime_verification": "PRTLS-140: Windows/MSVC Debug/Release164 each, SDK smoke, Chromium browser6 each; native examples27 unchanged.",
+  "telegram_verification": "Real Telegram clients not yet tested; simulated SDK checks are separate."
+}

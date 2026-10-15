@@ -1,0 +1,4008 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 1490005..f4379c2 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -13,6 +13,7 @@ if(PORTALS_BUILD_TESTS AND
+   message(FATAL_ERROR "PORTALS_PACKAGE_TEST_TIMEOUT must be a positive integer <= 86400 seconds")
+ endif()
+ option(PORTALS_BUILD_EXAMPLES "Build Portals example consumer" ${PROJECT_IS_TOP_LEVEL})
++option(PORTALS_BUILD_WASM_GALLERY "Build the opt-in Emscripten gallery" OFF)
+ option(PORTALS_BUILD_FUZZERS "Build opt-in Clang libFuzzer targets with sanitizers" OFF)
+ option(PORTALS_BUILD_DOCS "Build Portals API documentation with Doxygen" OFF)
+ option(PORTALS_BUILD_TOOLS "Build the standalone terminal diagnostic probe" ${PROJECT_IS_TOP_LEVEL})
+@@ -36,7 +37,11 @@ target_sources(portals_core PRIVATE src/input_shortcut.cpp)
+ 
+ target_sources(portals_core PRIVATE src/widgets/ui_style.cpp)
+ target_sources(portals_core PRIVATE src/widgets/ui_app.cpp)
+-if(WIN32)
++if(EMSCRIPTEN)
++  target_sources(portals_core PRIVATE src/terminal/unsupported.cpp)
++  target_compile_options(portals_core PUBLIC -fwasm-exceptions)
++  target_link_options(portals_core PUBLIC -fwasm-exceptions)
++elseif(WIN32)
+   target_sources(portals_core PRIVATE src/terminal/windows.cpp)
+ elseif(UNIX)
+   find_package(Threads REQUIRED)
+@@ -82,7 +87,7 @@ target_include_directories(portals_lyra SYSTEM INTERFACE
+ 
+ set(PORTALS_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/Portals")
+ set(PORTALS_PACKAGE_NEEDS_THREADS OFF)
+-if(UNIX)
++if(UNIX AND NOT EMSCRIPTEN)
+   set(PORTALS_PACKAGE_NEEDS_THREADS ON)
+ endif()
+ configure_package_config_file(cmake/PortalsConfig.cmake.in
+@@ -180,6 +185,10 @@ if(PORTALS_BUILD_TOOLS)
+   portals_enable_warnings(portals_terminal_probe)
+ endif()
+ 
++if(PORTALS_BUILD_WASM_GALLERY)
++  add_subdirectory(examples/wasm_gallery)
++endif()
++
+ if(PORTALS_BUILD_EXAMPLES)
+   add_subdirectory(examples/consumer)
+   add_subdirectory(examples/gallery)
+@@ -573,6 +582,30 @@ if(PORTALS_BUILD_TESTS)
+   add_test(NAME portals.data-loading COMMAND portals_data_loading)
+   set_tests_properties(portals.data-loading PROPERTIES TIMEOUT 20)
+ 
++  add_executable(portals_browser_terminal tests/browser_terminal.cpp examples/wasm_gallery/browser_terminal.cpp)
++  target_link_libraries(portals_browser_terminal PRIVATE portals::core)
++  portals_enable_warnings(portals_browser_terminal)
++  add_test(NAME portals.browser-terminal COMMAND portals_browser_terminal)
++  set_tests_properties(portals.browser-terminal PROPERTIES TIMEOUT 15)
++
++  add_executable(portals_move_only_function tests/move_only_function.cpp)
++  target_link_libraries(portals_move_only_function PRIVATE portals::core)
++  portals_enable_warnings(portals_move_only_function)
++  add_test(NAME portals.move-only-function COMMAND portals_move_only_function)
++  set_tests_properties(portals.move-only-function PROPERTIES TIMEOUT 15)
++
++  add_executable(portals_ui_session tests/ui_session.cpp)
++  target_link_libraries(portals_ui_session PRIVATE portals::core)
++  portals_enable_warnings(portals_ui_session)
++  add_test(NAME portals.ui-session COMMAND portals_ui_session)
++  set_tests_properties(portals.ui-session PROPERTIES TIMEOUT 15)
++
++  add_executable(portals_runtime_session tests/runtime_session.cpp)
++  target_link_libraries(portals_runtime_session PRIVATE portals::core)
++  portals_enable_warnings(portals_runtime_session)
++  add_test(NAME portals.runtime-session COMMAND portals_runtime_session)
++  set_tests_properties(portals.runtime-session PROPERTIES TIMEOUT 15)
++
+   add_executable(portals_application tests/application.cpp)
+   target_link_libraries(portals_application PRIVATE portals::core)
+   portals_enable_warnings(portals_application)
+@@ -941,7 +974,7 @@ if(PORTALS_BUILD_DOCS)
+   set(DOXYGEN_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/docs")
+ 
+   doxygen_add_docs(portals_docs include docs/compile-time-pss.md docs/style-layers.md docs/model-queries.md docs/ui-coroutines.md docs/compile-time-styles.md docs/compile-time-scenes.md ReleaseNotes.md docs/index.md docs/reference-map.md docs/guides.md docs/dependencies.md docs/planned-features.md docs/ru/application.md docs/ru/architecture.md docs/ru/bindings-guide.md docs/ru/cell-buffer.md docs/ru/chart.md docs/ru/cli.md docs/ru/compile-time-pss.md docs/ru/compile-time-scenes.md docs/ru/compile-time-styles.md docs/ru/controls.md docs/ru/declarative-ui.md docs/ru/dependencies.md docs/ru/diagnostics.md docs/ru/diff.md docs/ru/editor-history-demo.md docs/ru/editor-history.md docs/ru/examples.md docs/ru/focus.md docs/ru/geometry.md docs/ru/getting-started.md docs/ru/glossary.md docs/ru/grid.md docs/ru/guides.md docs/ru/index.md docs/ru/input.md docs/ru/layout.md docs/ru/limitations.md docs/ru/line-edit.md docs/ru/managed-controls.md docs/ru/model-queries.md docs/ru/model.md docs/ru/package.md docs/ru/planned-features.md docs/ru/property.md docs/ru/reference-map.md docs/ru/render.md docs/ru/scene-loading-guide.md docs/ru/scheduler.md docs/ru/scroll.md docs/ru/style-layers.md docs/ru/styles.md docs/ru/styling-guide.md docs/ru/terminal-probe.md docs/ru/terminal.md docs/ru/text-history.md docs/ru/text-property.md docs/ru/text.md docs/ru/themes-guide.md docs/ru/ui-coroutines.md docs/ru/virtual-list.md docs/ru/virtual-preparation.md docs/ru/virtual-table.md docs/ru/widget-tree.md docs/glossary.md docs/styling-guide.md docs/themes-guide.md docs/bindings-guide.md docs/scene-loading-guide.md docs/development.md docs/releasing.md docs/geometry.md docs/text.md docs/cell-buffer.md docs/render.md docs/diff.md docs/testing.md docs/scheduler.md docs/widget-tree.md docs/layout.md docs/grid.md docs/property.md docs/diagnostics.md docs/focus.md docs/model.md docs/input.md docs/terminal.md docs/terminal-probe.md docs/controls.md docs/line-edit.md docs/virtual-list.md docs/virtual-table.md docs/scroll.md docs/chart.md
+-    docs/styles.md docs/legacy.md docs/managed-controls.md docs/declarative-ui.md docs/text-property.md docs/text-history.md docs/editor-history.md docs/editor-history-demo.md docs/compact-examples.md docs/compactness.md docs/quality.md tools/compactness/compactness.hpp docs/managed-performance.md docs/package.md docs/application.md docs/virtual-preparation.md docs/examples.md docs/architecture.md docs/getting-started.md docs/limitations.md docs/api-design.md experiments/module-spike/README.md fuzz/README.md
++    docs/styles.md docs/legacy.md docs/managed-controls.md docs/declarative-ui.md docs/text-property.md docs/text-history.md docs/editor-history.md docs/editor-history-demo.md docs/compact-examples.md docs/compactness.md docs/quality.md tools/compactness/compactness.hpp docs/managed-performance.md docs/package.md docs/application.md docs/wasm-gallery.md docs/virtual-preparation.md docs/examples.md docs/architecture.md docs/getting-started.md docs/limitations.md docs/api-design.md fuzz/README.md
+     tools/benchmarks/README.md vendor/utf8proc/README.md vendor/utf8proc/LICENSE.md vendor/textual/README.md vendor/doctest/README.md vendor/pfr/README.md vendor/lyra/README.md docs/cli.md
+     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+     COMMENT "Generate Portals API documentation"
+diff --git a/CMakePresets.json b/CMakePresets.json
+index 196932f..8de2cf2 100644
+--- a/CMakePresets.json
++++ b/CMakePresets.json
+@@ -2,6 +2,32 @@
+   "version": 5,
+   "cmakeMinimumRequired": { "major": 3, "minor": 24, "patch": 0 },
+   "configurePresets": [
++    {
++      "name": "wasm-base",
++      "hidden": true,
++      "generator": "Ninja",
++      "binaryDir": "${sourceDir}/build/${presetName}",
++      "toolchainFile": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
++      "cacheVariables": {
++        "CMAKE_EXPORT_COMPILE_COMMANDS": true,
++        "PORTALS_BUILD_TESTS": false,
++        "PORTALS_BUILD_EXAMPLES": false,
++        "PORTALS_BUILD_TOOLS": false,
++        "PORTALS_BUILD_WASM_GALLERY": true
++      }
++    },
++    {
++      "name": "wasm-debug",
++      "inherits": "wasm-base",
++      "displayName": "Emscripten Debug (SDK 6.0.12)",
++      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
++    },
++    {
++      "name": "wasm-release",
++      "inherits": "wasm-base",
++      "displayName": "Emscripten Release (SDK 6.0.12)",
++      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
++    },
+     {
+       "name": "debug-base",
+       "hidden": true,
+@@ -50,6 +76,8 @@
+     }
+   ],
+   "buildPresets": [
++    { "name": "wasm-debug", "configurePreset": "wasm-debug", "targets": ["portals_wasm_gallery"] },
++    { "name": "wasm-release", "configurePreset": "wasm-release", "targets": ["portals_wasm_gallery"] },
+     { "name": "windows-msvc-debug", "configurePreset": "windows-msvc-debug" },
+     { "name": "linux-gcc-debug", "configurePreset": "linux-gcc-debug" },
+     { "name": "windows-msvc-release", "configurePreset": "windows-msvc-release" },
+diff --git a/examples/wasm_gallery/CMakeLists.txt b/examples/wasm_gallery/CMakeLists.txt
+new file mode 100644
+index 0000000..4303e3b
+--- /dev/null
++++ b/examples/wasm_gallery/CMakeLists.txt
+@@ -0,0 +1,22 @@
++if(NOT EMSCRIPTEN)
++  message(FATAL_ERROR "PORTALS_BUILD_WASM_GALLERY requires the Emscripten toolchain")
++endif()
++
++add_executable(portals_wasm_gallery main.cpp browser_terminal.cpp)
++target_link_libraries(portals_wasm_gallery PRIVATE portals::core)
++portals_enable_warnings(portals_wasm_gallery)
++set_target_properties(portals_wasm_gallery PROPERTIES
++  OUTPUT_NAME portals-gallery
++  SUFFIX ".js"
++  RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/wasm-gallery")
++target_link_options(portals_wasm_gallery PRIVATE
++  "-sMODULARIZE=1" "-sEXPORT_ES6=1" "-sEXPORT_NAME=createPortalsGallery"
++  "-sENVIRONMENT=web,node" "-sALLOW_MEMORY_GROWTH=1" "-sNO_EXIT_RUNTIME=1"
++  "-sEXPORTED_RUNTIME_METHODS=['HEAPU8']" "-sEXPORTED_FUNCTIONS=['_main','_malloc','_free']")
++
++add_executable(portals_wasm_sdk_smoke sdk_smoke.cpp)
++target_link_libraries(portals_wasm_sdk_smoke PRIVATE
++  "-Wl,--whole-archive" portals::core "-Wl,--no-whole-archive")
++portals_enable_warnings(portals_wasm_sdk_smoke)
++set_target_properties(portals_wasm_sdk_smoke PROPERTIES SUFFIX ".js")
++target_link_options(portals_wasm_sdk_smoke PRIVATE "-sENVIRONMENT=node")
+diff --git a/examples/wasm_gallery/LICENSES.txt b/examples/wasm_gallery/LICENSES.txt
+new file mode 100644
+index 0000000..bd72444
+--- /dev/null
++++ b/examples/wasm_gallery/LICENSES.txt
+@@ -0,0 +1,4 @@
++Portals WASM gallery
++Portals: Copyright (c) 2026 ttldtor. Boost Software License 1.0; see repository LICENSE.txt.
++xterm.js 6.0.0 and @xterm/addon-fit 0.11.0: MIT License; license texts copied from installed packages by the web build.
++utf8proc and Unicode notices: see vendor/utf8proc in the repository and the copied artifact notices.
+diff --git a/examples/wasm_gallery/browser_terminal.cpp b/examples/wasm_gallery/browser_terminal.cpp
+new file mode 100644
+index 0000000..33e3cd1
+--- /dev/null
++++ b/examples/wasm_gallery/browser_terminal.cpp
+@@ -0,0 +1,177 @@
++// Copyright (c) 2026 ttldtor.
++// SPDX-License-Identifier: BSL-1.0
++#include "browser_terminal.hpp"
++
++#include <utility>
++
++namespace wasm_gallery {
++using namespace portals;
++
++std::expected<std::unique_ptr<BrowserTerminal>, TerminalError>
++BrowserTerminal::create(CellSize size, Sink sink, TerminalOptions options) {
++  if (size.width < 0 || size.height < 0 || !sink || options.max_input_bytes == 0 || options.max_output_bytes == 0) {
++    return std::unexpected(TerminalError{TerminalErrorKind::INVALID_OPTIONS});
++  }
++
++  return std::unique_ptr<BrowserTerminal>(new BrowserTerminal(size, std::move(sink), options));
++}
++
++BrowserTerminal::BrowserTerminal(CellSize size, Sink sink, TerminalOptions options)
++    : size_(size), sink_(std::move(sink)), maxInputBytes_(options.max_input_bytes),
++      maxOutputBytes_(options.max_output_bytes) {
++}
++
++std::optional<TerminalError> BrowserTerminal::operationError() const noexcept {
++  if (closed_) {
++    return TerminalError{TerminalErrorKind::CLOSED};
++  }
++
++  return failure_;
++}
++
++std::expected<void, TerminalError> BrowserTerminal::pushInput(std::string_view bytes) {
++  if (const auto error = operationError()) {
++    return std::unexpected(*error);
++  }
++
++  if (bytes.size() > maxInputBytes_ - input_.size()) {
++    return recordFailure({TerminalErrorKind::INPUT_LIMIT});
++  }
++
++  input_.append(bytes);
++
++  return {};
++}
++
++std::expected<void, TerminalError> BrowserTerminal::resize(CellSize size) {
++  if (const auto error = operationError()) {
++    return std::unexpected(*error);
++  }
++
++  if (size.width < 0 || size.height < 0) {
++    return recordFailure({TerminalErrorKind::INVALID_OPTIONS});
++  }
++
++  if (size != size_) {
++    size_ = size;
++    resized_ = size;
++  }
++
++  return {};
++}
++
++std::expected<void, TerminalError> BrowserTerminal::recordFailure(TerminalError error) {
++  if (const auto current = operationError()) {
++    return std::unexpected(*current);
++  }
++
++  failure_ = error;
++
++  return std::unexpected(error);
++}
++
++TerminalRead BrowserTerminal::poll(std::stop_token stop) {
++  if (const auto error = operationError()) {
++    return {TerminalStatus::FAILED, {}, {}, {}, *error};
++  }
++
++  if (stop.stop_requested()) {
++    return {TerminalStatus::STOPPED};
++  }
++
++  if (input_.empty() && !resized_) {
++    return {TerminalStatus::DEADLINE};
++  }
++
++  TerminalRead result;
++
++  result.bytes.swap(input_);
++  result.resized = std::exchange(resized_, std::nullopt);
++
++  return result;
++}
++
++std::expected<CellSize, TerminalError> BrowserTerminal::size() const {
++  if (const auto error = operationError()) {
++    return std::unexpected(*error);
++  }
++
++  return size_;
++}
++
++std::expected<void, TerminalError> BrowserTerminal::submit(std::string bytes) {
++  if (const auto error = operationError()) {
++    return std::unexpected(*error);
++  }
++
++  if (pendingBytes() != 0) {
++    return std::unexpected(TerminalError{TerminalErrorKind::OUTPUT_PENDING});
++  }
++
++  if (bytes.size() > maxOutputBytes_) {
++    return std::unexpected(TerminalError{TerminalErrorKind::OUTPUT_LIMIT});
++  }
++
++  output_ = std::move(bytes);
++  outputOffset_ = 0;
++
++  return {};
++}
++
++TerminalWrite BrowserTerminal::flushReady(std::stop_token stop) {
++  if (const auto error = operationError()) {
++    return {TerminalStatus::FAILED, 0, pendingBytes(), *error};
++  }
++
++  if (stop.stop_requested()) {
++    return {TerminalStatus::STOPPED, 0, pendingBytes()};
++  }
++
++  if (pendingBytes() == 0) {
++    return {};
++  }
++
++  const auto suffix = std::string_view(output_).substr(outputOffset_);
++  std::expected<std::size_t, TerminalError> accepted;
++
++  try {
++    accepted = sink_(suffix);
++  } catch (...) {
++    accepted = std::unexpected(TerminalError{TerminalErrorKind::OUTPUT_UNCERTAIN});
++  }
++
++  if (!accepted || *accepted > suffix.size()) {
++    const auto error = accepted ? TerminalError{TerminalErrorKind::OUTPUT_UNCERTAIN} : accepted.error();
++
++    failure_ = error;
++
++    return {TerminalStatus::FAILED, 0, pendingBytes(), error};
++  }
++
++  outputOffset_ += *accepted;
++
++  const auto remaining = pendingBytes();
++
++  if (remaining == 0) {
++    output_.clear();
++    outputOffset_ = 0;
++  }
++
++  return {remaining == 0 ? TerminalStatus::PROGRESS : TerminalStatus::DEADLINE, *accepted, remaining};
++}
++
++std::size_t BrowserTerminal::pendingBytes() const noexcept {
++  return output_.size() - outputOffset_;
++}
++
++std::expected<void, TerminalError> BrowserTerminal::close() noexcept {
++  closed_ = true;
++  input_.clear();
++  output_.clear();
++  outputOffset_ = 0;
++  resized_.reset();
++  failure_.reset();
++
++  return {};
++}
++} // namespace wasm_gallery
+diff --git a/examples/wasm_gallery/browser_terminal.hpp b/examples/wasm_gallery/browser_terminal.hpp
+new file mode 100644
+index 0000000..50d57c1
+--- /dev/null
++++ b/examples/wasm_gallery/browser_terminal.hpp
+@@ -0,0 +1,90 @@
++// Copyright (c) 2026 ttldtor.
++// SPDX-License-Identifier: BSL-1.0
++#pragma once
++
++#include <portals/application.hpp>
++
++#include <functional>
++#include <string_view>
++
++namespace wasm_gallery {
++
++/** @brief Bounded single-UI-thread transport for a browser host, with no waits or implicit output.
++ * All calls, including host delivery and destruction, require the same thread and must not reenter.
++ * Input and output own their bytes. No JavaScript or WASM heap pointer is retained by this adapter.
++ * Allocation failures may throw. The first host/sink failure is retained until close; failed output is never retried.
++ */
++class BrowserTerminal final : public portals::ApplicationReadyTerminal {
++public:
++  /** @brief Synchronous nonblocking byte acceptance function.
++   * @param bytes Borrowed unsent suffix, valid only during this invocation. Copy every accepted byte before returning.
++   * @return Accepted prefix length, zero for backpressure, or an original transport failure.
++   * Must return promptly without waiting for display completion and must not reenter this transport.
++   * An exception or a count larger than bytes.size() makes output uncertain and permanently fails the transport.
++   */
++  using Sink = std::function<std::expected<std::size_t, portals::TerminalError>(std::string_view bytes)>;
++
++  /** @brief Validate and create an exclusive transport without performing host I/O.
++   * @param size Initial nonnegative cell viewport; zero dimensions are supported.
++   * @param sink Owning callback; captured borrowed state must survive close. An empty callback is invalid.
++   * @param options Positive max_input_bytes and max_output_bytes queue limits; native-only fields are unused.
++   * @return Owner, or INVALID_OPTIONS for an invalid viewport, callback or relevant limit.
++   */
++  static std::expected<std::unique_ptr<BrowserTerminal>, portals::TerminalError>
++  create(portals::CellSize size, Sink sink, portals::TerminalOptions options = {});
++  ~BrowserTerminal() override = default;                        ///< Release storage without emitting terminal commands.
++  BrowserTerminal(const BrowserTerminal &) = delete;            ///< Exclusive input/output state cannot be copied.
++  BrowserTerminal &operator=(const BrowserTerminal &) = delete; ///< Exclusive state cannot be assigned.
++
++  /** @brief Copy host bytes into the bounded input queue without decoding or running the application.
++   * @param bytes Borrowed fragment, including incomplete UTF-8 or escape sequences; empty is allowed.
++   * @return Success, CLOSED, retained first failure, or a sticky INPUT_LIMIT failure without partial admission.
++   */
++  std::expected<void, portals::TerminalError> pushInput(std::string_view bytes);
++  /** @brief Coalesce host resize notifications without running the application.
++   * @param size New nonnegative viewport; zero dimensions are supported.
++   * @return Success, CLOSED, retained failure, or sticky INVALID_OPTIONS for negative dimensions.
++   */
++  std::expected<void, portals::TerminalError> resize(portals::CellSize size);
++  /** @brief Retain the first asynchronous host error for the next ready operation.
++   * @param error Owning original bridge error; never replaces an earlier error.
++   * @return The retained failure, or CLOSED after close; always an unexpected result.
++   */
++  std::expected<void, portals::TerminalError> recordFailure(portals::TerminalError error);
++  /** @param stop Cancellation signal; stopped polls do not consume input or resize.
++   * @return One owning batch, DEADLINE when empty, STOPPED, or the retained failure.
++   */
++  portals::TerminalRead poll(std::stop_token stop = {}) override;
++  /** @return Latest viewport, CLOSED or retained failure; does not consume resize notifications. */
++  std::expected<portals::CellSize, portals::TerminalError> size() const override;
++  /** @param bytes Complete owning transaction; no sink invocation occurs here.
++   * @return Success, CLOSED, retained failure, OUTPUT_PENDING, or OUTPUT_LIMIT; rejected batches are not retained.
++   */
++  std::expected<void, portals::TerminalError> submit(std::string bytes) override;
++  /** @param stop Cancellation signal; a stopped flush preserves the unsent suffix.
++   * @return One sink invocation's exact acceptance; DEADLINE while pending, PROGRESS when complete, or failure.
++   */
++  portals::TerminalWrite flushReady(std::stop_token stop = {}) override;
++  /** @return Unaccepted bytes still owned, including a failed transaction; zero after close. */
++  std::size_t pendingBytes() const noexcept;
++  /** @brief Discard queues and close once, without emitting clear/restoration bytes or calling the sink.
++   * @return Success, including repeated close; the last host picture remains visible.
++   */
++  std::expected<void, portals::TerminalError> close() noexcept override;
++
++private:
++  BrowserTerminal(portals::CellSize size, Sink sink, portals::TerminalOptions options);
++  std::optional<portals::TerminalError> operationError() const noexcept;
++
++  portals::CellSize size_;
++  Sink sink_;
++  std::size_t maxInputBytes_;
++  std::size_t maxOutputBytes_;
++  std::string input_;
++  std::string output_;
++  std::size_t outputOffset_{};
++  std::optional<portals::CellSize> resized_;
++  std::optional<portals::TerminalError> failure_;
++  bool closed_{};
++};
++} // namespace wasm_gallery
+diff --git a/examples/wasm_gallery/main.cpp b/examples/wasm_gallery/main.cpp
+new file mode 100644
+index 0000000..631f250
+--- /dev/null
++++ b/examples/wasm_gallery/main.cpp
+@@ -0,0 +1,150 @@
++// Copyright (c) 2026 ttldtor.
++// SPDX-License-Identifier: BSL-1.0
++#include "../gallery/fluent_form.hpp"
++#include "browser_terminal.hpp"
++
++#include <emscripten.h>
++#include <format>
++
++namespace {
++EM_JS(int, writeHost, (const char *bytes, std::size_t length), {
++  try {
++    return Module['portalsWrite'](HEAPU8.subarray(bytes, bytes + length));
++  } catch (failure) {
++    console.error(failure);
++    return -1;
++  }
++});
++
++struct BrowserApplication {
++  example::Options options;
++  std::unique_ptr<wasm_gallery::BrowserTerminal> terminal;
++  portals::ui::Scene scene = gallery::form(portals::ui::opts(options));
++};
++
++// Member order keeps settings and transport alive while Scene finishes its session.
++std::unique_ptr<BrowserApplication> application;
++std::string lastError;
++
++int fail(std::string message) {
++  lastError = std::move(message);
++
++  return -1;
++}
++
++int managedFailure(std::string_view operation, const portals::ManagedError &error) {
++  return fail(std::format("{} failed (phase {}, cause {}).", operation, static_cast<int>(error.phase),
++                          error.cause.index()));
++}
++} // namespace
++
++extern "C" {
++/** @param columns Initial terminal width in cells.
++ * @param rows Initial terminal height in cells.
++ * @return Zero after starting, or minus one with an owning error string.
++ */
++EMSCRIPTEN_KEEPALIVE int portals_start(int columns, int rows) {
++  if (application) {
++    return fail("The gallery is already running. Reload the page to restart.");
++  }
++
++  try {
++    auto owner = std::make_unique<BrowserApplication>();
++    auto terminal = wasm_gallery::BrowserTerminal::create({columns, rows}, [](std::string_view bytes) -> std::expected<std::size_t, portals::TerminalError> {
++      const auto accepted = writeHost(bytes.data(), bytes.size());
++
++      if (accepted < 0) {
++        return std::unexpected(portals::TerminalError{portals::TerminalErrorKind::OUTPUT_UNCERTAIN});
++      }
++
++      return static_cast<std::size_t>(accepted);
++    });
++
++    if (!terminal) {
++      return fail("Cannot create the browser terminal.");
++    }
++
++    owner->terminal = std::move(*terminal);
++    application = std::move(owner);
++
++    auto started = application->scene.start(*application->terminal);
++
++    if (!started) {
++      return managedFailure("Gallery startup", started.error());
++    }
++
++    return 0;
++  } catch (const std::exception &error) {
++    return fail(error.what());
++  } catch (...) {
++    return fail("Unknown gallery startup failure.");
++  }
++}
++
++/** @return Zero to continue, one after cleanup, or minus one after a reported failure. */
++EMSCRIPTEN_KEEPALIVE int portals_step() {
++  if (!application) {
++    return fail("The gallery has not started.");
++  }
++
++  try {
++    auto step = application->scene.step();
++
++    if (!step) {
++      return managedFailure("Gallery step", step.error());
++    }
++
++    return step->finished ? 1 : 0;
++  } catch (const std::exception &error) {
++    return fail(error.what());
++  } catch (...) {
++    return fail("Unknown gallery step failure.");
++  }
++}
++
++/** @param bytes Borrowed UTF-8 bytes, copied before return.
++ * @param length Byte count, including incomplete sequences.
++ * @return Zero after admission, or minus one after a visible transport error.
++ */
++EMSCRIPTEN_KEEPALIVE int portals_input(const char *bytes, std::size_t length) {
++  if (!application) {
++    return fail("The gallery is closed.");
++  }
++
++  try {
++    auto pushed = application->terminal->pushInput({bytes, length});
++
++    return pushed ? 0 : fail("Terminal input failed or exceeded its queue limit.");
++  } catch (...) {
++    return fail("Cannot retain terminal input.");
++  }
++}
++
++/** @param columns New nonnegative terminal width in cells.
++ * @param rows New nonnegative terminal height in cells.
++ * @return Zero after admission, or minus one after a viewport error.
++ */
++EMSCRIPTEN_KEEPALIVE int portals_resize(int columns, int rows) {
++  if (!application) {
++    return fail("The gallery is closed.");
++  }
++
++  auto resized = application->terminal->resize({columns, rows});
++
++  return resized ? 0 : fail("Terminal resize failed.");
++}
++
++/** @return Borrowed null-terminated diagnostic, valid until the next failed export call. */
++EMSCRIPTEN_KEEPALIVE const char *portals_error() {
++  return lastError.c_str();
++}
++
++/** @brief Release the scene before its transport and options, after leaving the current step. */
++EMSCRIPTEN_KEEPALIVE void portals_shutdown() {
++  application.reset();
++}
++}
++
++int main() {
++  return 0;
++}
+diff --git a/examples/wasm_gallery/sdk_smoke.cpp b/examples/wasm_gallery/sdk_smoke.cpp
+new file mode 100644
+index 0000000..62dddba
+--- /dev/null
++++ b/examples/wasm_gallery/sdk_smoke.cpp
+@@ -0,0 +1,42 @@
++// Copyright (c) 2026 ttldtor.
++// SPDX-License-Identifier: BSL-1.0
++#include <portals/application.hpp>
++#include <portals/async.hpp>
++#include <portals/diagnostics.hpp>
++
++#include <cstdio>
++#include <format>
++
++namespace {
++struct SmokeReady {};
++
++portals::UiTask smokeTask() {
++  co_return std::expected<void, portals::AsyncError>{};
++}
++} // namespace
++
++/** @brief Exercise SDK language/library support without opening a native terminal. */
++int main() {
++  try {
++    auto application = portals::Application::create();
++    auto frame = portals::renderFullFrame({1, 1}, {});
++    auto layout = portals::Row{}.arrangeChildren({}, {1, 1});
++    portals::Diagnostics diagnostics;
++    auto evidence = portals::exportDiagnostics(diagnostics.snapshot());
++    auto task = smokeTask();
++
++    if (!application || !frame || !layout || evidence.empty()) {
++      return 1;
++    }
++
++    const auto message = std::format("Portals WASM SDK smoke: {}", "ready");
++
++    std::puts(message.c_str());
++
++    throw SmokeReady{};
++  } catch (const SmokeReady &) {
++    return 0;
++  } catch (...) {
++    return 1;
++  }
++}
+diff --git a/examples/wasm_gallery/web/.gitignore b/examples/wasm_gallery/web/.gitignore
+new file mode 100644
+index 0000000..c2658d7
+--- /dev/null
++++ b/examples/wasm_gallery/web/.gitignore
+@@ -0,0 +1 @@
++node_modules/
+diff --git a/examples/wasm_gallery/web/build.mjs b/examples/wasm_gallery/web/build.mjs
+new file mode 100644
+index 0000000..5870bbd
+--- /dev/null
++++ b/examples/wasm_gallery/web/build.mjs
+@@ -0,0 +1,24 @@
++// Copyright (c) 2026 ttldtor.
++// SPDX-License-Identifier: BSL-1.0
++import { build } from 'esbuild';
++import { copyFile, mkdir } from 'node:fs/promises';
++import { resolve, dirname } from 'node:path';
++import { fileURLToPath } from 'node:url';
++
++const here = dirname(fileURLToPath(import.meta.url));
++const output = resolve(process.argv[2] || resolve(here, '../../../build/wasm-debug/wasm-gallery'));
++await mkdir(output, { recursive: true });
++await build({ entryPoints: [resolve(here, 'main.js')], bundle: true, format: 'esm',
++  outfile: resolve(output, 'main.js'), external: ['./portals-gallery.js'], sourcemap: true });
++await copyFile(resolve(here, 'index.html'), resolve(output, 'index.html'));
++await copyFile(resolve(here, '../LICENSES.txt'), resolve(output, 'LICENSES.txt'));
++
++const notices = [
++  ['../../../LICENSE.txt', 'PORTALS-LICENSE.txt'],
++  ['../../../vendor/utf8proc/LICENSE.md', 'UTF8PROC-LICENSE.md'],
++  ['node_modules/@xterm/xterm/LICENSE', 'XTERM-LICENSE.txt'],
++  ['node_modules/@xterm/addon-fit/LICENSE', 'XTERM-FIT-LICENSE.txt']
++];
++for (const [source, destination] of notices) {
++  await copyFile(resolve(here, source), resolve(output, destination));
++}
+diff --git a/examples/wasm_gallery/web/index.html b/examples/wasm_gallery/web/index.html
+new file mode 100644
+index 0000000..2a305a3
+--- /dev/null
++++ b/examples/wasm_gallery/web/index.html
+@@ -0,0 +1,15 @@
++<!doctype html>
++<html lang="en">
++<head>
++  <meta charset="utf-8">
++  <meta name="viewport" content="width=device-width, initial-scale=1">
++  <title>Portals WASM gallery</title>
++  <link rel="stylesheet" href="main.css">
++</head>
++<body>
++  <header><h1>Portals gallery</h1><p>C++23 in WebAssembly · xterm.js</p></header>
++  <main><div id="terminal" aria-label="Portals terminal gallery"></div></main>
++  <p id="status" role="status" data-state="loading">Loading gallery…</p>
++  <script type="module" src="main.js"></script>
++</body>
++</html>
+diff --git a/examples/wasm_gallery/web/main.js b/examples/wasm_gallery/web/main.js
+new file mode 100644
+index 0000000..d00073a
+--- /dev/null
++++ b/examples/wasm_gallery/web/main.js
+@@ -0,0 +1,102 @@
++// Copyright (c) 2026 ttldtor.
++// SPDX-License-Identifier: BSL-1.0
++import { Terminal } from '@xterm/xterm';
++import { FitAddon } from '@xterm/addon-fit';
++import '@xterm/xterm/css/xterm.css';
++import './style.css';
++import { createTerminalBridge } from './terminal_bridge.js';
++
++const status = document.querySelector('#status');
++const container = document.querySelector('#terminal');
++const terminal = new Terminal({ cursorBlink: false, scrollback: 0, fontSize: 16, screenReaderMode: true });
++const fit = new FitAddon();
++terminal.loadAddon(fit);
++terminal.open(container);
++fit.fit();
++
++const bridge = createTerminalBridge(terminal);
++const encoder = new TextEncoder();
++const decoder = new TextDecoder();
++let module;
++let active = false;
++let frame;
++let listeners = [];
++let resizeObserver;
++
++function messageFromWasm() {
++  const pointer = module._portals_error();
++  const memory = module.HEAPU8;
++  const end = memory.indexOf(0, pointer);
++  return decoder.decode(memory.subarray(pointer, end < 0 ? memory.length : end));
++}
++
++function finish(error) {
++  active = false;
++  cancelAnimationFrame(frame);
++  resizeObserver?.disconnect();
++  listeners.forEach(listener => listener.dispose());
++  listeners = [];
++  // Queued xterm writes own their copies and may complete after C++ teardown.
++  bridge.close();
++  module?._portals_shutdown();
++  status.dataset.state = error ? 'error' : 'finished';
++  status.textContent = error ? `Error: ${error}` : 'Finished. Reload the page to restart.';
++}
++
++function step() {
++  if (!active) return;
++  try {
++    const result = module._portals_step();
++    if (result !== 0) {
++      finish(result < 0 ? messageFromWasm() : undefined);
++      return;
++    }
++    frame = requestAnimationFrame(step);
++  } catch (error) {
++    finish(error.message || String(error));
++  }
++}
++
++try {
++  const { default: createGallery } = await import('./portals-gallery.js');
++  module = await createGallery({ noInitialRun: true, portalsWrite: bytes => bridge.write(bytes) });
++  if (module._portals_start(terminal.cols, terminal.rows) !== 0) {
++    throw new Error(messageFromWasm());
++  }
++
++  active = true;
++  listeners.push(terminal.onData(text => {
++    if (!active) return;
++    try {
++      const bytes = encoder.encode(text);
++      const pointer = module._malloc(bytes.length || 1);
++      if (!pointer) { finish('Cannot allocate input storage.'); return; }
++      let result;
++      try {
++        module.HEAPU8.set(bytes, pointer);
++        result = module._portals_input(pointer, bytes.length);
++      } finally {
++        module._free(pointer);
++      }
++      if (result < 0) finish(messageFromWasm());
++    } catch (error) {
++      finish(error.message || String(error));
++    }
++  }));
++  listeners.push(terminal.onResize(({ cols, rows }) => {
++    try {
++      if (active && module._portals_resize(cols, rows) < 0) finish(messageFromWasm());
++    } catch (error) {
++      finish(error.message || String(error));
++    }
++  }));
++  resizeObserver = new ResizeObserver(() => { if (active) fit.fit(); });
++  resizeObserver.observe(container);
++  status.dataset.state = 'running';
++  status.textContent = 'Running — Tab to focus, Enter to activate, F2 for themes.';
++  terminal.focus();
++  frame = requestAnimationFrame(step);
++  window.addEventListener('pagehide', () => { if (active) finish(); }, { once: true });
++} catch (error) {
++  finish(error.message || String(error));
++}
+diff --git a/examples/wasm_gallery/web/package-lock.json b/examples/wasm_gallery/web/package-lock.json
+new file mode 100644
+index 0000000..909c1cf
+--- /dev/null
++++ b/examples/wasm_gallery/web/package-lock.json
+@@ -0,0 +1,564 @@
++{
++  "name": "portals-wasm-gallery",
++  "version": "0.3.0",
++  "lockfileVersion": 3,
++  "requires": true,
++  "packages": {
++    "": {
++      "name": "portals-wasm-gallery",
++      "version": "0.3.0",
++      "dependencies": {
++        "@xterm/addon-fit": "0.11.0",
++        "@xterm/xterm": "6.0.0"
++      },
++      "devDependencies": {
++        "@playwright/test": "1.64.1",
++        "esbuild": "0.28.2"
++      }
++    },
++    "node_modules/@esbuild/aix-ppc64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/aix-ppc64/-/aix-ppc64-0.28.2.tgz",
++      "integrity": "sha512-XExcO+dvLKvVtNTibSTBej1NCAbaGhWn9Ww1ZPx80qsahhPFe/8jgWP0IchNe0F3HwkU7n8ejhH8bjonqht8mQ==",
++      "cpu": [
++        "ppc64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "aix"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/android-arm": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/android-arm/-/android-arm-0.28.2.tgz",
++      "integrity": "sha512-kXXoiPVVGQcnIYGOeaovwOURpniDBpSq4A03qkQ+BMQqtGG6HYap3xne9C1O1yo4TR3qxlCX5IqqmX6fFo2Lqg==",
++      "cpu": [
++        "arm"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "android"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/android-arm64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/android-arm64/-/android-arm64-0.28.2.tgz",
++      "integrity": "sha512-5YfKeeI8qWfBZIX+u2xZC3Zlb3Os/gLS2sbEKM+I4ZOcsWmHS2WLysCcQZDAFRslDUU5Oiq44gf6PYN1vGwG5A==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "android"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/android-x64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/android-x64/-/android-x64-0.28.2.tgz",
++      "integrity": "sha512-O387ite7SzUyCcy3JQX4P4bLtEA7bLLkx+esve5JHnyYfNTxcVpXZo9jhdB0lTKN44gztELTdU7nS8Nr16Fs1Q==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "android"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/darwin-arm64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/darwin-arm64/-/darwin-arm64-0.28.2.tgz",
++      "integrity": "sha512-n4KqkOQrraxHJcgjM1RvwbigfQKIKJVpM7xp+KsxiyUSrRdIXnt73VhrPAx0fV44hgfmIVKjxMN9J1t5jySVkw==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/darwin-x64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/darwin-x64/-/darwin-x64-0.28.2.tgz",
++      "integrity": "sha512-uq6suIWYP37qzGddBKPw5QEQPi6HiLGsO7UmkpfyaYNQ3D+rN6w6WfwH+nuqcGXWvawGwxOEroO4YGnFh95azw==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "darwin"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/freebsd-arm64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/freebsd-arm64/-/freebsd-arm64-0.28.2.tgz",
++      "integrity": "sha512-n+I0BTSRIoy+d6RPKnEVwql5UwBJolytvY4mAOIEJorKlqgPII8ix6slVVrfZ5Tnj7glIZvloylbB/EJPMWEXw==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "freebsd"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/freebsd-x64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/freebsd-x64/-/freebsd-x64-0.28.2.tgz",
++      "integrity": "sha512-78XJTJkvPs0kz2w61301PJjXl4g7q3JqiYMZ/M/yVI73EHBrCRTgkhu9oqG7vPqq+a/yadEW8aD+agKlk5xrmg==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "freebsd"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/linux-arm": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-arm/-/linux-arm-0.28.2.tgz",
++      "integrity": "sha512-XlDnu2q5yoqems+xay6wSAcg9DDD7K9RLKZEBOMZm3ckNpJBvOX20tSfby8KfrrhINDyv9V2YVZKY/SpoGJI8w==",
++      "cpu": [
++        "arm"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/linux-arm64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-arm64/-/linux-arm64-0.28.2.tgz",
++      "integrity": "sha512-pW4AC0P3it8c7do9MVM4p51FzHzdM/TZrerurgRcHJ2WTa1VQ1CIq18xncfpBJw4ojkiZZrKW2yIBWBP92j6Ug==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/linux-ia32": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-ia32/-/linux-ia32-0.28.2.tgz",
++      "integrity": "sha512-CYbnj78HsIeA+DhgUKgFCfvNsTHFhMMrinUrMZpDXJXKN8T3XViTZ/+wtHeVxEWY8ewSzTFN+nRmSwO2tZaLUQ==",
++      "cpu": [
++        "ia32"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/linux-loong64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-loong64/-/linux-loong64-0.28.2.tgz",
++      "integrity": "sha512-buwkd8nsph4R+ajRvw0qM5Hja/TXQow3ptzWO2EbG/cqcIkHloRrdlBtQlshyYGTNFvfkfJ5tpPLVkY4DtsPfQ==",
++      "cpu": [
++        "loong64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/linux-mips64el": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-mips64el/-/linux-mips64el-0.28.2.tgz",
++      "integrity": "sha512-ZVykbDyk7519VwiNb9Lcj9m8XM6v5V9uKPvrEMkkEedVewf+0itkhahp4HDpgERXhwLRpWFypsGbG/J8s0QjJA==",
++      "cpu": [
++        "mips64el"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/linux-ppc64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-ppc64/-/linux-ppc64-0.28.2.tgz",
++      "integrity": "sha512-CAXl+Dtd9UUuJd8pKKdwh6MLm3MUMiqMPmhZ3tTSXPqfyQ3vDl6R5hZdZ/kYojK4ofXtdfSv1tFq8XzWx3heNQ==",
++      "cpu": [
++        "ppc64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/linux-riscv64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-riscv64/-/linux-riscv64-0.28.2.tgz",
++      "integrity": "sha512-GeXCej4IQtU1B+QlDV8W/RRvbzI3O/Stss+/bCXv4lZls5WGRtu2a+3JkA3i4qIUlMXpcHebWpF8AkJhATowuA==",
++      "cpu": [
++        "riscv64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/linux-s390x": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-s390x/-/linux-s390x-0.28.2.tgz",
++      "integrity": "sha512-3H1weTYZPxt/WOhByszQZybS9w5lKzUn1FDMsgEChbHWQwHYQQRfBxgCcZvPhjHfKyJjIievvMmEUawJrdY9Dg==",
++      "cpu": [
++        "s390x"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/linux-x64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.28.2.tgz",
++      "integrity": "sha512-4xTZr1FUmSoQW4XIWmit3tzQrUTZM+N3P0XV8xROKYF50XfI7xeO90+1bZvNwxIufQ9hDQVRJH5YhgPVF8A/HQ==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "linux"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/netbsd-arm64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/netbsd-arm64/-/netbsd-arm64-0.28.2.tgz",
++      "integrity": "sha512-sSATRjPeDBg3pdgHoQfoYBob11Kk1FGa9lui5RIHZCoCkJa9QKlvl3/vKz2usCmYYjs7ymJR/2Nnsqe+Hjt5nw==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "netbsd"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/netbsd-x64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/netbsd-x64/-/netbsd-x64-0.28.2.tgz",
++      "integrity": "sha512-lqnzCV+mM0gIADaKihiCg6ifgfU2L3h5E33rNQBN1Y4MaVGnzryzmvvf7UHxprpQdE8hpqLolJ9Rl+SkIRDpyw==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "netbsd"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/openbsd-arm64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/openbsd-arm64/-/openbsd-arm64-0.28.2.tgz",
++      "integrity": "sha512-AL2qJILH7lNjrDmCQDvdxMfAUIv8KMNZOvrwAQ8i8//ntL9FflhOyMJ8OZSMBb8/AWXe3/5v5S20y3zCoZWKoQ==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "openbsd"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/openbsd-x64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/openbsd-x64/-/openbsd-x64-0.28.2.tgz",
++      "integrity": "sha512-QtiuPytchRyC4rwUKhexJdQKvDuZ6hWloi3igqPQNUJCS1/v9EiO3UTOXR6A3FoMo4fnAKbWJdqaIwhOzh8qEw==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "openbsd"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/openharmony-arm64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/openharmony-arm64/-/openharmony-arm64-0.28.2.tgz",
++      "integrity": "sha512-WkhYDmpTjLvGlScA1rwjRUmhl4k8oXR3cIbtqWmELgU/dFeHHlEllxDvdWcNJV9rbzCexB5vz8gtNewWLgCT7Q==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "openharmony"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/sunos-x64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/sunos-x64/-/sunos-x64-0.28.2.tgz",
++      "integrity": "sha512-GPMSkTOtMnv2U2F8gxe4Io6qmVs+YKyp832Etqqxr0hFngmXQ3rzwytelm3GIn7T4VviRUlf3sOgBOiTdvaf7g==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "sunos"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/win32-arm64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/win32-arm64/-/win32-arm64-0.28.2.tgz",
++      "integrity": "sha512-PIhhEkE9uPBleRBrQEJpUn7MBnibZzbGzYWPmY3x+YoVg/95zbjB4CxPPOQ8l5tYYM4mMaCthF8/1DIfBQQyWQ==",
++      "cpu": [
++        "arm64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/win32-ia32": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/win32-ia32/-/win32-ia32-0.28.2.tgz",
++      "integrity": "sha512-YmJbfTlvU7Sdn9BB+4PRES4oB6pxgS37MAONj+hBr/cpXS1aBPKXxNnDbu+QCWPj0o9dgyxeq79g6c5P8KeuYA==",
++      "cpu": [
++        "ia32"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@esbuild/win32-x64": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/@esbuild/win32-x64/-/win32-x64-0.28.2.tgz",
++      "integrity": "sha512-5ebpxr3nWMzrL/rnUI755Jkuee0bHL/Gq0WTF9lvcpv73wAp5eu8MfBUgWK9bhWvZjj7yX8etf/8tI8Ney695g==",
++      "cpu": [
++        "x64"
++      ],
++      "dev": true,
++      "license": "MIT",
++      "optional": true,
++      "os": [
++        "win32"
++      ],
++      "engines": {
++        "node": ">=18"
++      }
++    },
++    "node_modules/@playwright/test": {
++      "version": "1.64.1",
++      "resolved": "https://registry.npmjs.org/@playwright/test/-/test-1.64.1.tgz",
++      "integrity": "sha512-IaYGml/nSOiZWROfPtuIL7neuu9qDOZ3TNvNljUIrhDMxiGTgPjzj/g9p9RxpS2tSepPDRY+UwAaEeiKtUvIAg==",
++      "dev": true,
++      "license": "Apache-2.0",
++      "dependencies": {
++        "playwright": "1.64.1"
++      },
++      "bin": {
++        "playwright": "cli.js"
++      },
++      "engines": {
++        "node": ">=20"
++      }
++    },
++    "node_modules/@xterm/addon-fit": {
++      "version": "0.11.0",
++      "resolved": "https://registry.npmjs.org/@xterm/addon-fit/-/addon-fit-0.11.0.tgz",
++      "integrity": "sha512-jYcgT6xtVYhnhgxh3QgYDnnNMYTcf8ElbxxFzX0IZo+vabQqSPAjC3c1wJrKB5E19VwQei89QCiZZP86DCPF7g==",
++      "license": "MIT"
++    },
++    "node_modules/@xterm/xterm": {
++      "version": "6.0.0",
++      "resolved": "https://registry.npmjs.org/@xterm/xterm/-/xterm-6.0.0.tgz",
++      "integrity": "sha512-TQwDdQGtwwDt+2cgKDLn0IRaSxYu1tSUjgKarSDkUM0ZNiSRXFpjxEsvc/Zgc5kq5omJ+V0a8/kIM2WD3sMOYg==",
++      "license": "MIT",
++      "workspaces": [
++        "addons/*"
++      ]
++    },
++    "node_modules/esbuild": {
++      "version": "0.28.2",
++      "resolved": "https://registry.npmjs.org/esbuild/-/esbuild-0.28.2.tgz",
++      "integrity": "sha512-HKVLS8dvII+xoKW9kmqxbRKrnWEXfJJr/FZhhJmiqIB0e053QNYFqOBouTMO/k5sID4MvCiUCvv8b9M4h32wIA==",
++      "dev": true,
++      "hasInstallScript": true,
++      "license": "MIT",
++      "bin": {
++        "esbuild": "bin/esbuild"
++      },
++      "engines": {
++        "node": ">=18"
++      },
++      "optionalDependencies": {
++        "@esbuild/aix-ppc64": "0.28.2",
++        "@esbuild/android-arm": "0.28.2",
++        "@esbuild/android-arm64": "0.28.2",
++        "@esbuild/android-x64": "0.28.2",
++        "@esbuild/darwin-arm64": "0.28.2",
++        "@esbuild/darwin-x64": "0.28.2",
++        "@esbuild/freebsd-arm64": "0.28.2",
++        "@esbuild/freebsd-x64": "0.28.2",
++        "@esbuild/linux-arm": "0.28.2",
++        "@esbuild/linux-arm64": "0.28.2",
++        "@esbuild/linux-ia32": "0.28.2",
++        "@esbuild/linux-loong64": "0.28.2",
++        "@esbuild/linux-mips64el": "0.28.2",
++        "@esbuild/linux-ppc64": "0.28.2",
++        "@esbuild/linux-riscv64": "0.28.2",
++        "@esbuild/linux-s390x": "0.28.2",
++        "@esbuild/linux-x64": "0.28.2",
++        "@esbuild/netbsd-arm64": "0.28.2",
++        "@esbuild/netbsd-x64": "0.28.2",
++        "@esbuild/openbsd-arm64": "0.28.2",
++        "@esbuild/openbsd-x64": "0.28.2",
++        "@esbuild/openharmony-arm64": "0.28.2",
++        "@esbuild/sunos-x64": "0.28.2",
++        "@esbuild/win32-arm64": "0.28.2",
++        "@esbuild/win32-ia32": "0.28.2",
++        "@esbuild/win32-x64": "0.28.2"
++      }
++    },
++    "node_modules/playwright": {
++      "version": "1.64.1",
++      "resolved": "https://registry.npmjs.org/playwright/-/playwright-1.64.1.tgz",
++      "integrity": "sha512-HCrVhHr5QQuwYoswEUGTb7gGp522yflbv/ST8nF4sFWGuLjQCt17Q/EubpGGSNKYn1tsTCPZxqHhHCfVURu7UA==",
++      "dev": true,
++      "license": "Apache-2.0",
++      "dependencies": {
++        "playwright-core": "1.64.1"
++      },
++      "bin": {
++        "playwright": "cli.js"
++      },
++      "engines": {
++        "node": ">=20"
++      }
++    },
++    "node_modules/playwright-core": {
++      "version": "1.64.1",
++      "resolved": "https://registry.npmjs.org/playwright-core/-/playwright-core-1.64.1.tgz",
++      "integrity": "sha512-BC4s8y6SEVA6Q1rSxZTto8hI1KUI3xXlHGZgvGqP4IqPdI/a6FX9H29IDNz7vKo9l21b6LfYosScPL6M3xxyDQ==",
++      "dev": true,
++      "license": "Apache-2.0",
++      "bin": {
++        "playwright-core": "cli.js"
++      },
++      "engines": {
++        "node": ">=20"
++      }
++    }
++  }
++}
+diff --git a/examples/wasm_gallery/web/package.json b/examples/wasm_gallery/web/package.json
+new file mode 100644
+index 0000000..bbb96e9
+--- /dev/null
++++ b/examples/wasm_gallery/web/package.json
+@@ -0,0 +1,19 @@
++{
++  "name": "portals-wasm-gallery",
++  "version": "0.3.0",
++  "private": true,
++  "type": "module",
++  "dependencies": {
++    "@xterm/addon-fit": "0.11.0",
++    "@xterm/xterm": "6.0.0"
++  },
++  "scripts": {
++    "build": "node build.mjs",
++    "test": "node --test ../../../tests/wasm_gallery/terminal_bridge.test.mjs",
++    "test:browser": "playwright test --config ../../../tests/wasm_gallery/playwright.config.mjs"
++  },
++  "devDependencies": {
++    "@playwright/test": "1.64.1",
++    "esbuild": "0.28.2"
++  }
++}
+diff --git a/examples/wasm_gallery/web/style.css b/examples/wasm_gallery/web/style.css
+new file mode 100644
+index 0000000..465f3b8
+--- /dev/null
++++ b/examples/wasm_gallery/web/style.css
+@@ -0,0 +1,10 @@
++/* Copyright (c) 2026 ttldtor. SPDX-License-Identifier: BSL-1.0 */
++:root { color-scheme: dark; font-family: system-ui, sans-serif; background: #11151c; color: #e5eaf2; }
++body { margin: 0 auto; padding: 1.25rem; max-width: 1100px; }
++header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 1rem; }
++h1 { font-size: 1.4rem; }
++header p, #status { color: #aebacd; }
++main { padding: 1rem; background: #000; border: 1px solid #35435b; border-radius: .5rem; }
++#terminal { width: 100%; height: min(65vh, 600px); min-height: 220px; }
++#status[data-state="error"] { color: #ff9a9a; }
++#status[data-state="finished"] { color: #a3d8af; }
+diff --git a/examples/wasm_gallery/web/terminal_bridge.js b/examples/wasm_gallery/web/terminal_bridge.js
+new file mode 100644
+index 0000000..664a7d8
+--- /dev/null
++++ b/examples/wasm_gallery/web/terminal_bridge.js
+@@ -0,0 +1,30 @@
++// Copyright (c) 2026 ttldtor.
++// SPDX-License-Identifier: BSL-1.0
++
++export const DEFAULT_OUTPUT_LIMIT = 2 * 1024 * 1024;
++
++export function createTerminalBridge(terminal, limit = DEFAULT_OUTPUT_LIMIT) {
++  let pending = 0;
++  let closed = false;
++  let failed = false;
++
++  return {
++    write(bytes) {
++      if (closed || failed) return -1;
++      if (bytes.byteLength > limit - pending) return 0;
++
++      const copy = Uint8Array.from(bytes);
++      pending += copy.byteLength;
++      try {
++        terminal.write(copy, () => { pending -= copy.byteLength; });
++      } catch (error) {
++        pending -= copy.byteLength;
++        failed = true;
++        throw error;
++      }
++      return copy.byteLength;
++    },
++    close() { closed = true; },
++    get pendingBytes() { return pending; }
++  };
++}
+diff --git a/include/portals/application.hpp b/include/portals/application.hpp
+index 96c8ed1..b2d932f 100644
+--- a/include/portals/application.hpp
++++ b/include/portals/application.hpp
+@@ -10,7 +10,7 @@
+ 
+ namespace portals {
+ 
+-/** @brief Synchronous runner phase, also used to identify a failure boundary. */
++/** @brief Application runner phase, also used to identify a failure boundary. */
+ enum class ApplicationPhase {
+   CREATE,         ///< Validate options and construct the application and its core services.
+   OPEN,           ///< Enter a run and initialize its transport and runner state.
+@@ -19,7 +19,7 @@ enum class ApplicationPhase {
+   PREPARE,        ///< Synchronize scene state and, when enabled, prepare views after preliminary layout.
+   RENDER,         ///< Lay out and paint the final frame, then consume commands into an owning cell buffer.
+   SUBMIT,         ///< Give the owning frame to FrameWriter for diff encoding; no transport write occurs here.
+-  FLUSH,          ///< Write pending encoded output within the configured deadline.
++  FLUSH,          ///< Advance encoded output through ready operations or the native deadline driver.
+   STOP,           ///< Request cancellation, stop the scheduler and invoke the scene's stop hook.
+   CLOSE,          ///< Close the transport and attempt restoration of terminal state.
+   CONTROL_LATENCY ///< Observer-only logical queue delay for the runner's input/resize channel, not a work phase.
+@@ -27,11 +27,13 @@ enum class ApplicationPhase {
+ 
+ /** @brief Failures introduced by the runner itself. */
+ enum class ApplicationFailure {
+-  INVALID_OPTIONS, ///< Runner options are invalid, or a native run was requested with an injected clock.
+-  ALREADY_RUN,     ///< This application has already entered its single permitted run.
+-  NO_MEMORY,       ///< Allocation failed at a runner exception boundary.
+-  CALLBACK_FAILED, ///< A non-allocation exception escaped into a runner callback boundary.
+-  OBSERVER_FAILED  ///< The optional measurement observer threw an exception.
++  INVALID_OPTIONS,    ///< Runner options are invalid, or a native run was requested with an injected clock.
++  ALREADY_RUN,        ///< This application has already entered its single permitted run.
++  NO_MEMORY,          ///< Allocation failed at a runner exception boundary.
++  CALLBACK_FAILED,    ///< A non-allocation exception escaped into a runner callback boundary.
++  OBSERVER_FAILED,    ///< The optional measurement observer threw an exception.
++  NOT_STARTED,        ///< A step was requested before an accepted start.
++  REENTRANT_OPERATION ///< A lifecycle operation was requested from an active operation or callback.
+ };
+ 
+ /** @brief Original component error; no formatted text or borrowed exception is retained. */
+@@ -46,8 +48,8 @@ struct ApplicationError {
+ };
+ 
+ /** @brief Optional synchronous measurement sink; disabled by default.
+- * The borrowed observer must outlive run. It must not perform I/O, mutate/reenter the application,
+- * or retain borrowed state. It may collect bounded samples. Exceptions fail run explicitly.
++ * The borrowed observer must outlive run or active session cleanup. It must not perform I/O, mutate/reenter the
++ * application, or retain borrowed state. It may collect bounded samples. Exceptions fail run explicitly.
+  */
+ struct ApplicationObserver {
+   /** @brief Receive one completed phase duration; called outside tree frames.
+@@ -86,7 +88,7 @@ struct ApplicationOptions {
+   std::size_t maxPreparationPasses{3};         ///< Positive layout/view preparation budget for opt-in scenes per frame.
+ };
+ 
+-/** @brief Owning totals from a completed run, without samples or terminal data. */
++/** @brief Owning cumulative totals from a run or session, without samples or terminal data. */
+ struct ApplicationStats {
+   std::uint64_t iterations{}; ///< Bounded service cycles executed.
+   std::uint64_t frames{};     ///< Accepted frame submissions, including semantically unchanged frames.
+@@ -116,6 +118,43 @@ public:
+   virtual std::expected<void, TerminalError> close() noexcept = 0;
+ };
+ 
++/** @brief One owning snapshot returned by a bounded session step. */
++struct ApplicationStep {
++  bool finished{};        ///< True after orderly stop and cleanup; subsequent steps preserve this result.
++  ApplicationStats stats; ///< Cumulative progress, independent of the borrowed transport and scene.
++};
++
++/** @brief Exclusive ready-only transport borrowed by an application session.
++ * Every operation must return without waiting for I/O, a timer or another callback.
++ * Operations perform bounded work; poll returns one owning batch respecting TerminalOptions limits.
++ * DEADLINE with no error means no input/progress is currently available. Errors remain explicit.
++ * submit transfers a complete encoded batch into bounded owned storage, without acknowledging output.
++ * flushReady reports exact newly accepted bytes and the retained suffix, using FrameOutput accounting.
++ * Acceptance into a bounded host queue may count as progress; physical display is not promised.
++ * close must also be nonblocking, idempotent and noexcept. The transport must outlive cleanup,
++ * including Application destruction when a session is still active. Calls run on the UI owner thread.
++ */
++class ApplicationReadyTerminal {
++public:
++  virtual ~ApplicationReadyTerminal() = default; ///< Destroy after session cleanup.
++  /** @param stop Cooperative cancellation signal; never wait for cancellation.
++   * @return One ready owning input batch, no input, EOF, stop, or an explicit error.
++   */
++  virtual TerminalRead poll(std::stop_token stop) = 0;
++  /** @return Current nonnegative viewport, or its original error, without waiting. */
++  virtual std::expected<CellSize, TerminalError> size() const = 0;
++  /** @param bytes Complete owning transaction; reject before output if it cannot be retained.
++   * @return Success after retaining bytes, or the original transport rejection.
++   */
++  virtual std::expected<void, TerminalError> submit(std::string bytes) = 0;
++  /** @param stop Cooperative cancellation signal.
++   * @return Exact progress from bounded ready output work and the remaining owned suffix.
++   */
++  virtual TerminalWrite flushReady(std::stop_token stop) = 0;
++  /** @return Success or original cleanup error; no waiting or exceptions. */
++  virtual std::expected<void, TerminalError> close() noexcept = 0;
++};
++
+ /**
+  * @brief Open an exclusive native transport with managed screen and optional mouse reporting.
+  *
+@@ -218,7 +257,11 @@ public:
+    */
+   static std::expected<std::unique_ptr<Application>, ApplicationError> create(ApplicationOptions options = {},
+                                                                               SchedulerClock clock = {});
+-  ~Application(); ///< Release routing/tree before the scheduler; scene must already be destroyed.
++  /** @brief Finish an active session, then release routing/tree before the scheduler.
++   * Destroy on the UI owner thread. An active session's borrowed scene, observer and terminal
++   * must remain alive through this call; a completed session retains no borrowed scene callbacks.
++   */
++  ~Application();
+   Application(const Application &) = delete;
+   Application &operator=(const Application &) = delete;
+   /** @return Borrowed UI scheduler; publishers may retain its closed channel state. */
+@@ -235,6 +278,25 @@ public:
+   WidthPolicy widthPolicy() const noexcept;
+   /** @brief Worker-safe while this owner lives; wakes scheduler and cancels terminal waits. */
+   void requestStop() noexcept;
++  /** @brief Start the single permitted ready-only session, without waiting or running a frame.
++   * @param scene Borrowed scene which must outlive session cleanup, including destructor cleanup.
++   * @param terminal Exclusive bounded transport borrowed through cleanup; no ownership transfer.
++   * @param stop Caller cancellation signal sampled at start and each step; retained safely until cleanup.
++   * @return Success, or the first start failure after cleanup once start was accepted.
++   * Wrong-thread, reentrant and repeated starts reject without changing the active session.
++   */
++  std::expected<void, ApplicationError> start(ApplicationScene &scene, ApplicationReadyTerminal &terminal,
++                                              std::stop_token stop = {});
++  /** @brief Service one bounded input/dispatch/render/output cycle without waiting.
++   * Uses existing input/scheduler/preparation budgets and at most one frame and one flush.
++   * User callbacks and ready transport operations must themselves return in bounded time.
++   * EOF preserves run's cutoff: it drains admitted input/output, without waiting for a frame deadline.
++   * @return Owning cumulative progress and completion, or the retained first failure after cleanup.
++   * NOT_STARTED, WRONG_THREAD and REENTRANT_OPERATION reject without stopping a session.
++   */
++  std::expected<ApplicationStep, ApplicationError> step();
++  /** @return Owning cumulative totals; call only on the UI owner thread outside concurrent operations. */
++  ApplicationStats stats() const noexcept;
+   /** @brief Open standard input/output and restore them before returning.
+    * Requires the default steady clock; an injected clock returns INVALID_OPTIONS before opening.
+    * EOF finishes decoding, delivers admitted CONTROL and flushes submitted output. It does not
+@@ -258,6 +320,7 @@ public:
+ private:
+   struct State;
+   explicit Application(std::unique_ptr<State> state);
++  void finishSession() noexcept;
+   std::unique_ptr<State> state_;
+ };
+ } // namespace portals
+diff --git a/include/portals/detail/move_only_function.hpp b/include/portals/detail/move_only_function.hpp
+new file mode 100644
+index 0000000..547f5f7
+--- /dev/null
++++ b/include/portals/detail/move_only_function.hpp
+@@ -0,0 +1,129 @@
++// Copyright (c) 2026 ttldtor.
++// SPDX-License-Identifier: BSL-1.0
++#pragma once
++
++#include <concepts>
++#include <cstddef>
++#include <functional>
++#include <memory>
++#include <type_traits>
++#include <utility>
++
++namespace portals::detail {
++
++/** @brief Internal owning callable fallback for libraries without C++23 move_only_function.
++ * @tparam Signature Unqualified function signature R(Args...); cv/ref/noexcept signatures are unsupported.
++ */
++template <class Signature> class BasicMoveOnlyFunction;
++
++/** @brief Heap-owned, move-only callable invoked as a mutable lvalue.
++ * @tparam R Result type, including void.
++ * @tparam Args Arguments forwarded according to the function signature.
++ * @details Moving transfers ownership and empties the source. Destruction releases the callable and its captures.
++ * Construction can throw allocation or callable-construction exceptions; invocation propagates callable exceptions.
++ * An empty object must not be invoked. Concurrent access requires external synchronization.
++ */
++template <class R, class... Args> class BasicMoveOnlyFunction<R(Args...)> {
++public:
++  /** @brief Construct an empty callable without allocation. */
++  BasicMoveOnlyFunction() noexcept = default;
++
++  /** @brief Construct an empty callable.
++   * @param empty Null marker; no target is allocated.
++   */
++  BasicMoveOnlyFunction(std::nullptr_t empty) noexcept {
++    (void)empty;
++  }
++
++  /** @brief Own a callable by copying or moving its decayed value.
++   * @tparam F Callable constructible from the argument and invocable as a mutable lvalue with the declared result.
++   * @param callable Target to own; null function or member pointers produce an empty object.
++   */
++  // Reject noncallable conversion candidates before inspecting their potentially recursive constructors.
++  template <class F>
++    requires(!std::same_as<std::remove_cvref_t<F>, BasicMoveOnlyFunction> &&
++             std::is_invocable_r_v<R, std::decay_t<F> &, Args...> && std::constructible_from<std::decay_t<F>, F>)
++  BasicMoveOnlyFunction(F &&callable) {
++    if constexpr (std::is_pointer_v<std::decay_t<F>> || std::is_member_pointer_v<std::decay_t<F>>) {
++      if (callable == nullptr) {
++        return;
++      }
++    }
++
++    target_ = std::make_unique<Target<std::decay_t<F>>>(std::forward<F>(callable));
++  }
++
++  /** @brief Transfer the target, leaving the source empty.
++   * @param other Callable whose target ownership is transferred.
++   */
++  BasicMoveOnlyFunction(BasicMoveOnlyFunction &&other) noexcept = default;
++
++  /** @brief Release the old target and transfer ownership from another callable.
++   * @param other Callable whose target is transferred; empty after a non-self move.
++   * @return This callable after transfer.
++   */
++  BasicMoveOnlyFunction &operator=(BasicMoveOnlyFunction &&other) noexcept = default;
++
++  BasicMoveOnlyFunction(const BasicMoveOnlyFunction &) = delete;
++  BasicMoveOnlyFunction &operator=(const BasicMoveOnlyFunction &) = delete;
++
++  /** @brief Release the owned callable and its captures.
++   * @param empty Null marker requesting an empty state.
++   * @return This callable, now empty.
++   */
++  BasicMoveOnlyFunction &operator=(std::nullptr_t empty) noexcept {
++    (void)empty;
++    target_.reset();
++
++    return *this;
++  }
++
++  /** @return Whether a callable is owned and can be invoked. */
++  explicit operator bool() const noexcept {
++    return static_cast<bool>(target_);
++  }
++
++  /** @brief Invoke the owned target without consuming it.
++   * @param args Arguments forwarded to the target with their declared value categories.
++   * @return Target result, converted to R; no value for void.
++   * @pre This object is nonempty.
++   * @throws Any exception thrown by the callable or conversion of its result.
++   */
++  R operator()(Args... args) {
++    return target_->invoke(std::forward<Args>(args)...);
++  }
++
++private:
++  struct TargetBase {
++    virtual ~TargetBase() = default;
++    virtual R invoke(Args... args) = 0;
++  };
++
++  template <class F> struct Target final : TargetBase {
++    template <class Input> explicit Target(Input &&callable) : callable_(std::forward<Input>(callable)) {
++    }
++
++    R invoke(Args... args) override {
++      if constexpr (std::is_void_v<R>) {
++        std::invoke(callable_, std::forward<Args>(args)...);
++      } else {
++        return std::invoke(callable_, std::forward<Args>(args)...);
++      }
++    }
++
++    F callable_;
++  };
++
++  std::unique_ptr<TargetBase> target_;
++};
++
++/** @brief Preserve the standard callable type when available, otherwise use the internal owning fallback.
++ * @tparam Signature Unqualified function signature R(Args...) used by the UI construction and launch layers.
++ */
++#if defined(__cpp_lib_move_only_function) && __cpp_lib_move_only_function >= 202110L
++template <class Signature> using MoveOnlyFunction = std::move_only_function<Signature>;
++#else
++template <class Signature> using MoveOnlyFunction = BasicMoveOnlyFunction<Signature>;
++#endif
++
++} // namespace portals::detail
+diff --git a/include/portals/managed.hpp b/include/portals/managed.hpp
+index 323eaa7..c8fe995 100644
+--- a/include/portals/managed.hpp
++++ b/include/portals/managed.hpp
+@@ -795,10 +795,21 @@ public:
+    */
+   std::expected<ApplicationStats, ManagedError> run(ApplicationTerminal &terminal, std::stop_token stop = {});
+ 
++  /** @param terminal Ready-only transport borrowed until terminal step or destruction.
++   * @param stop Cooperative cancellation sampled by each ready operation.
++   * @return Success or complete managed start failure. UI-only and single-use.
++   */
++  std::expected<void, ManagedError> start(ApplicationReadyTerminal &terminal, std::stop_token stop = {});
++
++  /** @return One bounded ready step or terminal managed failure; terminal results are retained.
++   * UI-only; reentry is rejected without changing the active session.
++   */
++  std::expected<ApplicationStep, ManagedError> step();
++
+   /** @brief Idempotently retire callbacks and subtree; properties survive until scene destruction.
+    * A facade-installed shutdown action runs once before root/model retirement. Its failure does not skip
+    * subtree cleanup; an independent tree cleanup failure is retained in the shutdown error's cleanup field.
+-   * @return Success, WRONG_THREAD, WOULD_BLOCK inside managed preparation/frame or close reentry,
++   * @return Success, WRONG_THREAD, WOULD_BLOCK during an active session, managed preparation/frame or close reentry,
+    * an exact facade shutdown failure, or tree cleanup error.
+    */
+   std::expected<void, ManagedError> close();
+@@ -1034,6 +1045,7 @@ private:
+                 std::span<const ManagedDiagnosticContext> contexts = {});
+   std::expected<ApplicationStats, ManagedError> finish(std::expected<ApplicationStats, ApplicationError> result);
+   void retainCloseFailure();
++  std::expected<ApplicationStep, ManagedError> finishStep(std::expected<ApplicationStep, ApplicationError> result);
+ 
+   Application &app_;
+   std::thread::id owner_;
+@@ -1073,6 +1085,8 @@ private:
+   bool notifyingRunFailure_{};
+   void *closeContext_{};
+   std::expected<void, ManagedError> (*beforeClose_)(void *){};
++  std::optional<std::expected<ApplicationStep, ManagedError>> sessionResult_;
++  bool sessionActive_{}, sessionOperating_{}, stoppingSession_{};
+   bool closing_{};
+   bool closed_{};
+   std::shared_ptr<bool> textMutating_ = std::make_shared<bool>(false);
+diff --git a/include/portals/ui.hpp b/include/portals/ui.hpp
+index 11bb5a2..6d732c2 100644
+--- a/include/portals/ui.hpp
++++ b/include/portals/ui.hpp
+@@ -2,6 +2,7 @@
+ // SPDX-License-Identifier: BSL-1.0
+ #pragma once
+ 
++#include <portals/detail/move_only_function.hpp>
+ #include <portals/grid.hpp>
+ #include <portals/managed.hpp>
+ #include <portals/ui_ref.hpp>
+@@ -52,10 +53,10 @@ struct MountContext {
+   Node<Widget> root; ///< First created node; identifies the subtree to retire on failure.
+   std::vector<Node<Widget>> nodes =
+     std::vector<Node<Widget>>(0); ///< Created observers checked for liveness before publication.
+-  std::vector<std::move_only_function<void()>> publish =
+-    std::vector<std::move_only_function<void()>>(0); ///< Nonthrowing assignments publishing reserved refs.
+-  std::vector<std::move_only_function<void()>> release =
+-    std::vector<std::move_only_function<void()>>(0); ///< Nonthrowing releases of temporary ref reservations.
++  std::vector<portals::detail::MoveOnlyFunction<void()>> publish =
++    std::vector<portals::detail::MoveOnlyFunction<void()>>(0); ///< Nonthrowing assignments publishing reserved refs.
++  std::vector<portals::detail::MoveOnlyFunction<void()>> release =
++    std::vector<portals::detail::MoveOnlyFunction<void()>>(0); ///< Nonthrowing releases of temporary ref reservations.
+ 
+   /** @brief Release ref reservations after either publication or rollback. */
+   ~MountContext() {
+@@ -339,7 +340,8 @@ concept ClickCallback = std::copy_constructible<Callback> && (requires(Callback
+  * Arguments are borrowed for the invocation. External effects and separately created scene
+  * state are not rolled back; the attempted description subtree is removed on failure.
+  */
+-template <class T> using Setup = std::move_only_function<std::expected<void, ManagedError>(ManagedScene &, Node<T>)>;
++template <class T>
++using Setup = portals::detail::MoveOnlyFunction<std::expected<void, ManagedError>(ManagedScene &, Node<T>)>;
+ 
+ /** @brief Owning optional editor customization and confirmation policy. */
+ struct LineEditConfig {
+@@ -487,10 +489,10 @@ private:
+   friend Description<LineEdit> lineEdit(ManagedState<std::string>, LineEditConfig);
+ 
+   /** @brief Owning constructor adapter using the existing checked managed mount. */
+-  using Factory = std::move_only_function<std::expected<Node<T>, ManagedError>(ManagedScene &, Node<Widget>)>;
++  using Factory = portals::detail::MoveOnlyFunction<std::expected<Node<T>, ManagedError>(ManagedScene &, Node<Widget>)>;
+   /** @brief Owning child recipe adapter sharing the parent's transaction bookkeeping. */
+-  using Child =
+-    std::move_only_function<std::expected<void, ManagedError>(ManagedScene &, Node<Widget>, detail::MountContext &)>;
++  using Child = portals::detail::MoveOnlyFunction<std::expected<void, ManagedError>(ManagedScene &, Node<Widget>,
++                                                                                    detail::MountContext &)>;
+ 
+   /** @brief Unmounted recipe storage, consumed and destroyed during mount. */
+   struct State {
+diff --git a/include/portals/ui_app.hpp b/include/portals/ui_app.hpp
+index e23afeb..22a7a9b 100644
+--- a/include/portals/ui_app.hpp
++++ b/include/portals/ui_app.hpp
+@@ -2,6 +2,8 @@
+ // SPDX-License-Identifier: BSL-1.0
+ #pragma once
+ 
++#include <portals/detail/move_only_function.hpp>
++
+ #include <expected>
+ #include <functional>
+ #include <memory>
+@@ -299,5 +301,5 @@ struct LaunchAction {
+ 
+ /** @brief Owning lazy parser; borrowed bound options must outlive its synchronous invocation. */
+ using CommandLineParser =
+-  std::move_only_function<std::expected<LaunchAction, CommandLineError>(const app::Arguments &)>;
++  portals::detail::MoveOnlyFunction<std::expected<LaunchAction, CommandLineError>(const app::Arguments &)>;
+ } // namespace portals::ui
+diff --git a/include/portals/ui_scene.hpp b/include/portals/ui_scene.hpp
+index b2d42b8..646176b 100644
+--- a/include/portals/ui_scene.hpp
++++ b/include/portals/ui_scene.hpp
+@@ -2,6 +2,7 @@
+ // SPDX-License-Identifier: BSL-1.0
+ #pragma once
+ 
++#include <portals/detail/move_only_function.hpp>
+ #include <portals/detail/setup_failure.hpp>
+ #include <portals/managed.hpp>
+ #include <portals/ui_app.hpp>
+@@ -220,14 +221,17 @@ struct LiveFactory {
+  */
+ class Scene {
+ public:
+-  /** @brief Transfer an idle UI-affine owner; wrong-thread/active moves terminate.
++  /** @brief Transfer a UI-affine owner between operations, including between session steps.
++   * Wrong-thread moves and moves from inside an operation or callback terminate.
+    * @param other Source owner, left empty with checked CLOSED results.
+    */
+   Scene(Scene &&other) noexcept;
+   Scene &operator=(Scene &&) = delete;
+   Scene(const Scene &) = delete;
+   Scene &operator=(const Scene &) = delete;
+-  /** @brief Close the managed owner before releasing its Application, on UI outside operations/frames. */
++  /** @brief Cancel and finish an active session, then close its managed owner before releasing Application.
++   * Destruction is UI-only, outside operations/frames; the borrowed ready terminal must still be alive.
++   */
+   ~Scene();
+ 
+   /** @param origin Preparation call site retained if this boundary fails.
+@@ -674,6 +678,20 @@ public:
+   std::expected<ApplicationStats, ManagedError> run(ApplicationTerminal &terminal, std::stop_token stop = {},
+                                                     std::source_location origin = std::source_location::current());
+ 
++  /** @param terminal Ready-only transport borrowed until terminal step or scene destruction.
++   * @param stop Cooperative cancellation retained by the application.
++   * @param origin Start call site retained in diagnostics.
++   * @return Success or first typed cause with cleanup details. UI-only and single-use.
++   */
++  std::expected<void, ManagedError> start(ApplicationReadyTerminal &terminal, std::stop_token stop = {},
++                                          std::source_location origin = std::source_location::current());
++
++  /** @param origin Step call site retained in diagnostics.
++   * @return Bounded ready progress or retained terminal result. No current-scene context escapes the call.
++   * Reentry and calls before start are rejected without poisoning an active session.
++   */
++  std::expected<ApplicationStep, ManagedError> step(std::source_location origin = std::source_location::current());
++
+   /** @brief Request orderly exit through the existing application cancellation path.
+    * @param origin Exit request call site.
+    * @return Success, WRONG_THREAD, CLOSED, or sticky WOULD_BLOCK during notification/close; read-only reporting rejects
+@@ -732,15 +750,15 @@ public:
+                             std::source_location origin = std::source_location::current()) &;
+ 
+   /** @param origin Cleanup call site.
+-   * @return Idempotent explicit cleanup result; reentry returns WOULD_BLOCK without retiring an active owner.
++   * @return Idempotent explicit cleanup result; active sessions and reentry return WOULD_BLOCK without retirement.
+    * The first facade failure remains observable through checked()/run().
+    */
+   std::expected<void, ManagedError> close(std::source_location origin = std::source_location::current());
+ 
+ private:
+   friend struct detail::SceneAccess;
+-  using Configuration = std::move_only_function<std::expected<void, ManagedError>(ManagedScene &)>;
+-  using Stop = std::move_only_function<std::expected<void, ManagedError>()>;
++  using Configuration = portals::detail::MoveOnlyFunction<std::expected<void, ManagedError>(ManagedScene &)>;
++  using Stop = portals::detail::MoveOnlyFunction<std::expected<void, ManagedError>()>;
+   struct State;
+   detail::SetupFailureScope setupScope(const char *execution) noexcept;
+   static Application &admittedApplication(ManagedScene &scene) noexcept;
+@@ -1143,7 +1161,7 @@ struct SceneAccess {
+    * @param origin Scene construction call site.
+    * @return UI-affine lazy owner; storage allocation may throw before preparation.
+    */
+-  static Scene create(std::move_only_function<std::expected<void, ManagedError>(ManagedScene &)> recipe,
++  static Scene create(portals::detail::MoveOnlyFunction<std::expected<void, ManagedError>(ManagedScene &)> recipe,
+                       SceneOptions options, std::source_location origin) {
+     return Scene(std::move(recipe), options, origin);
+   }
+diff --git a/src/runtime/application.cpp b/src/runtime/application.cpp
+index 0b8b53c..2d09e64 100644
+--- a/src/runtime/application.cpp
++++ b/src/runtime/application.cpp
+@@ -240,24 +240,43 @@ struct Application::State {
+   std::unique_ptr<EventRouter> router;
+   Node<Widget> root;
+   std::stop_source stop;
+-  bool ran{};
++  bool ran{}, operating{}, complete{};
++  ApplicationStats stats;
++  ApplicationPhase phase{ApplicationPhase::OPEN};
++  std::optional<ApplicationError> error;
++  ApplicationScene *scene{};
++  ApplicationTerminal *legacy{};
++  ApplicationReadyTerminal *ready{};
++  std::unique_ptr<Run> run;
+ 
+-  State(ApplicationOptions policy, SchedulerClock time) : options(std::move(policy)), clock(time) {
+-  }
++  struct Cancel {
++    Application *app;
++
++    void operator()() const noexcept {
++      app->requestStop();
++    }
++  };
++
++  std::unique_ptr<std::stop_callback<Cancel>> cancellation;
++  std::stop_token readyStop;
+ 
+-  void observe(ApplicationPhase phase, std::chrono::nanoseconds elapsed) {
++  ~State();
++
++  State(ApplicationOptions policy, SchedulerClock time);
++
++  void observe(ApplicationPhase measuredPhase, std::chrono::nanoseconds elapsed) {
+     if (!options.observer.callback) {
+       return;
+     }
+ 
+     try {
+-      options.observer.callback(options.observer.context, phase, elapsed);
++      options.observer.callback(options.observer.context, measuredPhase, elapsed);
+     } catch (...) {
+       throw Failure{ApplicationFailure::OBSERVER_FAILED};
+     }
+   }
+ 
+-  template <class Callback> void measure(ApplicationPhase phase, Callback &&callback) {
++  template <class Callback> void measure(ApplicationPhase measuredPhase, Callback &&callback) {
+     if (!options.observer.callback) {
+       callback();
+ 
+@@ -268,7 +287,7 @@ struct Application::State {
+ 
+     callback();
+ 
+-    observe(phase, std::chrono::steady_clock::now() - begin);
++    observe(measuredPhase, std::chrono::steady_clock::now() - begin);
+   }
+ };
+ 
+@@ -277,7 +296,24 @@ struct Application::State::Run {
+   Application &app;
+   State &state;
+   ApplicationScene &scene;
+-  ApplicationTerminal &terminal;
++
++  // The writer sees only one stable output adapter. Legacy deadline I/O is used
++  // exclusively by the synchronous host, while step installs only ready operations.
++  struct Output final : FrameOutput {
++    State &state;
++
++    explicit Output(State &owner) : state(owner) {
++    }
++
++    std::expected<void, TerminalError> submit(std::string bytes) override {
++      return state.ready ? state.ready->submit(std::move(bytes)) : state.legacy->submit(std::move(bytes));
++    }
++
++    TerminalWrite flush(TerminalDeadline deadline, std::stop_token stop) override {
++      return state.ready ? state.ready->flushReady(stop) : state.legacy->flush(deadline, stop);
++    }
++  } output;
++
+   ApplicationStats &stats;
+   ApplicationPhase &phase;
+   std::optional<ApplicationError> &error;
+@@ -294,12 +330,11 @@ struct Application::State::Run {
+   bool ending{}, finished{}, drain{};
+   const std::uint32_t frameInterval;
+ 
+-  Run(Application &application, State &owner, ApplicationScene &content, ApplicationTerminal &transport,
+-      ApplicationStats &totals, ApplicationPhase &currentPhase, std::optional<ApplicationError> &failure)
+-      : app(application), state(owner), scene(content), terminal(transport), stats(totals), phase(currentPhase),
+-        error(failure), viewport(require(terminal.size())), decoder(require(InputDecoder::create(state.options.input))),
+-        scope(require(app.scheduler().makeScope())),
+-        writer(terminal, state.options.writer, state.options.scheduler.diagnostics),
++  Run(Application &application, State &owner)
++      : app(application), state(owner), scene(*owner.scene), output(owner), stats(owner.stats), phase(owner.phase),
++        error(owner.error), viewport(require(owner.ready ? owner.ready->size() : owner.legacy->size())),
++        decoder(require(InputDecoder::create(state.options.input))), scope(require(app.scheduler().makeScope())),
++        writer(output, state.options.writer, state.options.scheduler.diagnostics),
+         frameInterval((1000u + state.options.framesPerSecond - 1) / state.options.framesPerSecond) {
+     require(app.tree().invalidate(app.root(), Invalidation::LAYOUT));
+     channel = require(app.scheduler().connect<Control>(
+@@ -350,7 +385,10 @@ struct Application::State::Run {
+         deadline = std::min(deadline, deadlineAt(*decodeDeadline));
+       }
+ 
+-      batch.emplace(terminal.read(deadline, state.stop.get_token()));
++      // Only the synchronous host reaches the legacy branch. The public step
++      // accepts no deadline transport and therefore cannot accidentally read(now).
++      batch.emplace(state.ready ? state.ready->poll(state.stop.get_token())
++                                : state.legacy->read(deadline, state.stop.get_token()));
+       arrival = app.now();
+       byteOffset = eventOffset = 0;
+ 
+@@ -607,29 +645,25 @@ struct Application::State::Run {
+     }
+   }
+ 
+-  void execute() {
+-    while (!state.stop.stop_requested()) {
+-      ++stats.iterations;
+-      phase = ApplicationPhase::INPUT;
+-      readInput();
++  bool process() {
++    if (state.stop.stop_requested()) {
++      return false;
++    }
+ 
+-      if (state.stop.stop_requested()) {
+-        break;
+-      }
++    admitInput();
+ 
+-      admitInput();
++    if (!dispatch()) {
++      return false;
++    }
+ 
+-      if (!dispatch()) {
+-        break;
+-      }
++    renderReady();
+ 
+-      renderReady();
+-      flushOutput();
++    return true;
++  }
+ 
+-      if (finished && !pending && !batch && app.scheduler().metrics().control.pending == 0 && !writer.pending()) {
+-        break;
+-      }
+-    }
++  bool finishedWork() const {
++    return state.stop.stop_requested() ||
++           (finished && !pending && !batch && app.scheduler().metrics().control.pending == 0 && !writer.pending());
+   }
+ };
+ 
+@@ -655,7 +689,17 @@ void ApplicationScene::stop(Application &) {
+ Application::Application(std::unique_ptr<State> state) : state_(std::move(state)) {
+ }
+ 
+-Application::~Application() = default;
++Application::State::State(ApplicationOptions policy, SchedulerClock time) : options(std::move(policy)), clock(time) {
++}
++
++Application::State::~State() = default;
++
++Application::~Application() {
++  if (state_->scene && !state_->complete) {
++    state_->operating = true;
++    finishSession();
++  }
++}
+ 
+ Scheduler &Application::scheduler() noexcept {
+   return *state_->scheduler;
+@@ -754,76 +798,205 @@ std::expected<ApplicationStats, ApplicationError> Application::run(ApplicationSc
+   }
+ }
+ 
+-std::expected<ApplicationStats, ApplicationError>
+-Application::run(ApplicationScene &scene, ApplicationTerminal &terminal, std::stop_token externalStop) {
++std::expected<void, ApplicationError> Application::start(ApplicationScene &scene, ApplicationReadyTerminal &terminal,
++                                                         std::stop_token externalStop) {
+   if (state_->owner != std::this_thread::get_id()) {
+     return std::unexpected(ApplicationError{ApplicationPhase::OPEN, TreeError::WRONG_THREAD, {}});
+   }
+ 
++  if (state_->operating) {
++    return std::unexpected(ApplicationError{ApplicationPhase::OPEN, ApplicationFailure::REENTRANT_OPERATION, {}});
++  }
++
+   if (state_->ran) {
+     return std::unexpected(ApplicationError{ApplicationPhase::OPEN, ApplicationFailure::ALREADY_RUN, {}});
+   }
+ 
+-  state_->ran = true;
+-
+-  ApplicationStats stats;
+-  ApplicationPhase phase = ApplicationPhase::OPEN;
+-  std::optional<ApplicationError> error;
+-  auto capture = [&] {
+-    captureFailure(phase, error);
+-  };
+-  std::stop_callback cancellation(externalStop, [&] {
+-    requestStop();
+-  });
++  state_->ran = state_->operating = true;
++  state_->scene = &scene;
++  state_->ready = &terminal;
+ 
+   try {
++    // The ready host never waits: sampling its retained token avoids destroying
++    // a stop_callback that could join a concurrently executing external callback.
++    state_->readyStop = externalStop;
++
++    if (state_->readyStop.stop_requested()) {
++      requestStop();
++    }
++
+     if (!state_->stop.stop_requested()) {
+-      State::Run run(*this, *state_, scene, terminal, stats, phase, error);
+-      run.execute();
++      state_->run = std::make_unique<State::Run>(*this, *state_);
++    } else {
++      finishSession();
+     }
+   } catch (...) {
+-    capture();
++    captureFailure(state_->phase, state_->error);
++    finishSession();
++  }
++
++  state_->operating = false;
++
++  if (state_->error) {
++    return std::unexpected(*state_->error);
++  }
++
++  return {};
++}
++
++std::expected<ApplicationStep, ApplicationError> Application::step() {
++  if (state_->owner != std::this_thread::get_id()) {
++    return std::unexpected(ApplicationError{ApplicationPhase::OPEN, TreeError::WRONG_THREAD, {}});
+   }
+ 
+-  phase = ApplicationPhase::STOP;
++  if (state_->operating) {
++    return std::unexpected(ApplicationError{ApplicationPhase::OPEN, ApplicationFailure::REENTRANT_OPERATION, {}});
++  }
++
++  if (!state_->ran || (!state_->ready && !state_->complete)) {
++    return std::unexpected(ApplicationError{ApplicationPhase::OPEN, ApplicationFailure::NOT_STARTED, {}});
++  }
++
++  state_->operating = true;
++
++  if (state_->readyStop.stop_requested()) {
++    requestStop();
++  }
++
++  if (!state_->complete && state_->stop.stop_requested()) {
++    finishSession();
++  }
++
++  if (!state_->complete) {
++    try {
++      ++state_->stats.iterations;
++      state_->phase = ApplicationPhase::INPUT;
++      state_->run->readInput();
++
++      if (state_->run->process()) {
++        state_->run->flushOutput();
++      }
++
++      if (state_->run->finishedWork()) {
++        finishSession();
++      }
++    } catch (...) {
++      captureFailure(state_->phase, state_->error);
++      finishSession();
++    }
++  }
++
++  state_->operating = false;
++
++  if (state_->error) {
++    return std::unexpected(*state_->error);
++  }
++
++  return ApplicationStep{state_->complete, state_->stats};
++}
++
++ApplicationStats Application::stats() const noexcept {
++  return state_->stats;
++}
++
++void Application::finishSession() noexcept {
++  if (state_->complete) {
++    return;
++  }
++
++  // Disconnect callbacks that capture Run before stopping producers or the scene.
++  // All progress and errors remain in State after the engine storage is released.
++  state_->run.reset();
++  state_->complete = true;
++  state_->phase = ApplicationPhase::STOP;
+ 
+   try {
+-    state_->measure(phase, [&] {
++    state_->measure(state_->phase, [&] {
+       requestStop();
+       require(scheduler().stop());
+-      scene.stop(*this);
++      state_->scene->stop(*this);
+     });
+   } catch (...) {
+-    capture();
++    captureFailure(state_->phase, state_->error);
+   }
+ 
+-  phase = ApplicationPhase::CLOSE;
++  state_->phase = ApplicationPhase::CLOSE;
+   std::optional<TerminalError> restoration;
+ 
+   try {
+-    state_->measure(phase, [&] {
+-      auto closed = terminal.close();
++    state_->measure(state_->phase, [&] {
++      auto closed = state_->ready ? state_->ready->close() : state_->legacy->close();
+ 
+       if (!closed) {
+         restoration = closed.error();
+       }
+     });
+   } catch (...) {
+-    capture();
++    captureFailure(state_->phase, state_->error);
+   }
+ 
+   if (restoration) {
+-    if (!error) {
+-      error.emplace(ApplicationError{phase, *restoration, {}});
++    if (!state_->error) {
++      state_->error.emplace(ApplicationError{state_->phase, *restoration, {}});
+     }
+ 
+-    error->restoration = restoration;
++    state_->error->restoration = restoration;
+   }
+ 
+-  if (error) {
+-    return std::unexpected(*error);
++  state_->cancellation.reset();
++  state_->readyStop = {};
++  state_->scene = nullptr;
++  state_->legacy = nullptr;
++  state_->ready = nullptr;
++}
++
++std::expected<ApplicationStats, ApplicationError>
++Application::run(ApplicationScene &scene, ApplicationTerminal &terminal, std::stop_token externalStop) {
++  if (state_->owner != std::this_thread::get_id()) {
++    return std::unexpected(ApplicationError{ApplicationPhase::OPEN, TreeError::WRONG_THREAD, {}});
++  }
++
++  if (state_->ran) {
++    return std::unexpected(ApplicationError{ApplicationPhase::OPEN, ApplicationFailure::ALREADY_RUN, {}});
++  }
++
++  state_->ran = state_->operating = true;
++  state_->scene = &scene;
++  state_->legacy = &terminal;
++
++  try {
++    state_->cancellation = std::make_unique<std::stop_callback<State::Cancel>>(externalStop, State::Cancel{this});
++
++    if (!state_->stop.stop_requested()) {
++      state_->run = std::make_unique<State::Run>(*this, *state_);
++
++      while (!state_->stop.stop_requested()) {
++        ++state_->stats.iterations;
++        state_->phase = ApplicationPhase::INPUT;
++        // Deadline reads and flushes belong to this synchronous host, outside
++        // the shared bounded processing engine and the public ready-only step.
++        state_->run->readInput();
++
++        if (state_->run->process()) {
++          state_->run->flushOutput();
++        }
++
++        if (state_->run->finishedWork()) {
++          break;
++        }
++      }
++    }
++  } catch (...) {
++    captureFailure(state_->phase, state_->error);
++  }
++
++  finishSession();
++  state_->operating = false;
++
++  if (state_->error) {
++    return std::unexpected(*state_->error);
+   }
+ 
+-  return stats;
++  return state_->stats;
+ }
+ } // namespace portals
+diff --git a/src/widgets/managed.cpp b/src/widgets/managed.cpp
+index a63663c..f258af0 100644
+--- a/src/widgets/managed.cpp
++++ b/src/widgets/managed.cpp
+@@ -371,6 +371,15 @@ ManagedScene::~ManagedScene() {
+     std::terminate();
+   }
+ 
++  if (sessionOperating_) {
++    std::terminate();
++  }
++
++  if (sessionActive_) {
++    app_.requestStop();
++    (void)step();
++  }
++
+   // Router/scheduler may retain disconnected captures until their next collection.
+   // Weak state handles end with this owner even while those internal borrows drain.
+   lifetime_.reset();
+@@ -2165,7 +2174,7 @@ std::expected<void, ManagedError> ManagedScene::close() {
+     return std::unexpected(error(ManagedPhase::CLEANUP, root_, TreeError::WRONG_THREAD));
+   }
+ 
+-  if (preparing_ || reporting_ || styling_ || closing_) {
++  if (preparing_ || reporting_ || styling_ || closing_ || (sessionActive_ && !stoppingSession_)) {
+     return std::unexpected(error(ManagedPhase::CLEANUP, root_, TreeError::WOULD_BLOCK));
+   }
+ 
+@@ -2235,8 +2244,12 @@ void ManagedScene::stop(Application &app) {
+     return;
+   }
+ 
++  stoppingSession_ = true;
++
+   auto result = close();
+ 
++  stoppingSession_ = false;
++
+   if (!result) {
+     cleanup_ = bridge(result.error());
+   }
+@@ -2311,6 +2324,10 @@ ManagedScene::finish(std::expected<ApplicationStats, ApplicationError> result) {
+ }
+ 
+ std::expected<ApplicationStats, ManagedError> ManagedScene::run(std::stop_token stop) {
++  if (owner_ == std::this_thread::get_id() && (sessionActive_ || sessionOperating_)) {
++    return std::unexpected(error(ManagedPhase::RUN, root_, TreeError::WOULD_BLOCK));
++  }
++
+   auto allowed = boundary(ManagedPhase::RUN, root_);
+ 
+   if (!allowed) {
+@@ -2321,10 +2338,20 @@ std::expected<ApplicationStats, ManagedError> ManagedScene::run(std::stop_token
+     return std::unexpected(error(ManagedPhase::RUN, root_, TreeError::WOULD_BLOCK));
+   }
+ 
+-  return finish(app_.run(*this, stop));
++  sessionOperating_ = true;
++
++  auto result = finish(app_.run(*this, stop));
++
++  sessionOperating_ = false;
++
++  return result;
+ }
+ 
+ std::expected<ApplicationStats, ManagedError> ManagedScene::run(ApplicationTerminal &terminal, std::stop_token stop) {
++  if (owner_ == std::this_thread::get_id() && (sessionActive_ || sessionOperating_)) {
++    return std::unexpected(error(ManagedPhase::RUN, root_, TreeError::WOULD_BLOCK));
++  }
++
+   auto allowed = boundary(ManagedPhase::RUN, root_);
+ 
+   if (!allowed) {
+@@ -2335,6 +2362,99 @@ std::expected<ApplicationStats, ManagedError> ManagedScene::run(ApplicationTermi
+     return std::unexpected(error(ManagedPhase::RUN, root_, TreeError::WOULD_BLOCK));
+   }
+ 
+-  return finish(app_.run(*this, terminal, stop));
++  sessionOperating_ = true;
++
++  auto result = finish(app_.run(*this, terminal, stop));
++
++  sessionOperating_ = false;
++
++  return result;
++}
++
++std::expected<ApplicationStep, ManagedError>
++ManagedScene::finishStep(std::expected<ApplicationStep, ApplicationError> result) {
++  if (result && !result->finished) {
++    return *result;
++  }
++
++  sessionActive_ = false;
++
++  auto finished =
++    finish(result ? std::expected<ApplicationStats, ApplicationError>(result->stats) : std::unexpected(result.error()));
++
++  if (finished) {
++    sessionResult_.emplace(ApplicationStep{true, *finished});
++  } else {
++    sessionResult_.emplace(std::unexpected(finished.error()));
++  }
++
++  return *sessionResult_;
++}
++
++std::expected<void, ManagedError> ManagedScene::start(ApplicationReadyTerminal &terminal, std::stop_token stop) {
++  if (owner_ != std::this_thread::get_id()) {
++    return std::unexpected(error(ManagedPhase::RUN, root_, TreeError::WRONG_THREAD));
++  }
++
++  if (sessionActive_ || sessionOperating_) {
++    return std::unexpected(error(ManagedPhase::RUN, root_, TreeError::WOULD_BLOCK));
++  }
++
++  auto allowed = boundary(ManagedPhase::RUN, root_);
++
++  if (!allowed) {
++    return allowed;
++  }
++
++  if (closing_) {
++    return std::unexpected(error(ManagedPhase::RUN, root_, TreeError::WOULD_BLOCK));
++  }
++
++  sessionActive_ = sessionOperating_ = true;
++
++  auto result = app_.start(*this, terminal, stop);
++
++  // Application may finish synchronously for cancellation or a start failure.
++  if (!result || closed_) {
++    auto finished =
++      finishStep(result ? std::expected<ApplicationStep, ApplicationError>(ApplicationStep{true, app_.stats()})
++                        : std::unexpected(result.error()));
++
++    sessionOperating_ = false;
++
++    if (!finished) {
++      return std::unexpected(finished.error());
++    }
++  } else {
++    sessionOperating_ = false;
++  }
++
++  return {};
++}
++
++std::expected<ApplicationStep, ManagedError> ManagedScene::step() {
++  if (owner_ != std::this_thread::get_id()) {
++    return std::unexpected(error(ManagedPhase::RUN, root_, TreeError::WRONG_THREAD));
++  }
++
++  if (sessionOperating_ || preparing_ || reporting_ || styling_ || closing_) {
++    return std::unexpected(error(ManagedPhase::RUN, root_, TreeError::WOULD_BLOCK));
++  }
++
++  if (sessionResult_) {
++    return *sessionResult_;
++  }
++
++  if (!sessionActive_) {
++    return std::unexpected(error(ManagedPhase::RUN, root_, closed_ ? TreeError::CLOSED : TreeError::INVALID_ARGUMENT));
++  }
++
++  sessionOperating_ = true;
++
++  auto result = finishStep(app_.step());
++
++  sessionOperating_ = false;
++
++  return result;
+ }
+ } // namespace portals
+diff --git a/src/widgets/ui_scene.cpp b/src/widgets/ui_scene.cpp
+index 4b33cec..f347fb5 100644
+--- a/src/widgets/ui_scene.cpp
++++ b/src/widgets/ui_scene.cpp
+@@ -99,6 +99,10 @@ constexpr const char *categoryName(ApplicationFailure value) noexcept {
+     return "INVALID_OPTIONS";
+   case ApplicationFailure::ALREADY_RUN:
+     return "ALREADY_RUN";
++  case ApplicationFailure::NOT_STARTED:
++    return "NOT_STARTED";
++  case ApplicationFailure::REENTRANT_OPERATION:
++    return "REENTRANT_OPERATION";
+   case ApplicationFailure::NO_MEMORY:
+     return "NO_MEMORY";
+   case ApplicationFailure::CALLBACK_FAILED:
+@@ -584,6 +588,8 @@ struct Scene::State {
+   bool quitRequested{}, finalReported{};
+   std::optional<int> preflightStatus;
+   bool stopped{};
++  bool sessionStarted{}, sessionActive{};
++  std::optional<std::expected<ApplicationStep, ManagedError>> sessionResult;
+   bool shortFailure{}, shortDeliveryPending{};
+   const void *primaryShortAttempt{};
+ 
+@@ -843,6 +849,20 @@ struct Scene::State {
+ 
+   std::expected<void, ManagedError> cleanup(std::source_location origin) {
+     detail::SetupFailureScope cleanupScope({}, nullptr, nullptr);
++
++    if (sessionActive) {
++      // Configuration can fail between host callbacks. Finish the borrowed application
++      // before revoking publication or retiring its scene, just as the native run does.
++      Guard guard(*this, Operation::RUN);
++      detail::CurrentSceneScope current(anchor);
++
++      application->requestStop();
++
++      auto finished = finishStep(managed->step(), origin);
++
++      return finished ? std::expected<void, ManagedError>{} : std::unexpected(finished.error());
++    }
++
+     completed = true;
+ 
+     // Revoke observing publication and actual live controllers before managed input captures retire.
+@@ -887,6 +907,50 @@ struct Scene::State {
+     return result;
+   }
+ 
++  std::expected<ApplicationStats, ManagedError> finishRun(std::expected<ApplicationStats, ManagedError> result,
++                                                          std::source_location origin) {
++    if (!result) {
++      if (failure) {
++        if (result.error().application) {
++          failure->application = result.error().application;
++        }
++
++        if (result.error().cleanup) {
++          failure->cleanup = result.error().cleanup;
++        }
++      } else {
++        fail(result.error(), "scene.run", origin, false);
++        notified = detail::SceneAccess::runFailureNotified(*managed);
++      }
++    }
++
++    // Native open can fail before scene.stop; both drivers require this final cleanup.
++    (void)cleanup(origin);
++    notifyFallback();
++
++    return failure ? std::unexpected(*failure) : result;
++  }
++
++  std::expected<ApplicationStep, ManagedError> finishStep(std::expected<ApplicationStep, ManagedError> result,
++                                                          std::source_location origin) {
++    if (result && !result->finished) {
++      return *result;
++    }
++
++    sessionActive = false;
++
++    auto finished = finishRun(
++      result ? std::expected<ApplicationStats, ManagedError>(result->stats) : std::unexpected(result.error()), origin);
++
++    if (finished) {
++      sessionResult.emplace(ApplicationStep{true, *finished});
++    } else {
++      sessionResult.emplace(std::unexpected(finished.error()));
++    }
++
++    return *sessionResult;
++  }
++
+   void invoke(Configuration &callback, std::source_location origin) {
+     detail::SetupFailureScope scope(active == Operation::RUN ? std::weak_ptr<void>{} : anchor,
+                                     active == Operation::RUN ? nullptr : setupEvent, "scene.configure");
+@@ -948,6 +1012,14 @@ Scene::~Scene() {
+ 
+   detail::SetupFailureScope lifecycleScope({}, nullptr, nullptr);
+ 
++  if (state_->sessionActive) {
++    State::Guard guard(*state_, State::Operation::RUN);
++    detail::CurrentSceneScope current(state_->anchor);
++
++    state_->application->requestStop();
++    (void)state_->finishStep(state_->managed->step(), std::source_location::current());
++  }
++
+   {
+     State::Guard guard(*state_, State::Operation::CLOSE);
+ 
+@@ -1067,7 +1139,7 @@ std::expected<void, ManagedError> Scene::prepareChecked(std::source_location ori
+   detail::SetupFailureScope lifecycleScope({}, nullptr, nullptr);
+   auto &state = *state_;
+ 
+-  if (state.active != State::Operation::NONE) {
++  if (state.active != State::Operation::NONE || state.sessionActive) {
+     auto cause = error(ManagedPhase::PREPARE, TreeError::WOULD_BLOCK, state.node());
+ 
+     state.fail(cause, "scene.prepare", origin);
+@@ -1195,7 +1267,8 @@ bool Scene::admitConfiguration(bool runtime, std::source_location origin) {
+ 
+   auto &state = *state_;
+ 
+-  if (state.active != State::Operation::NONE && !(runtime && state.active == State::Operation::RUN)) {
++  if ((state.active != State::Operation::NONE && !(runtime && state.active == State::Operation::RUN)) ||
++      (state.sessionActive && !runtime)) {
+     state.fail(error(ManagedPhase::BIND, TreeError::WOULD_BLOCK, state.node()), "scene.configure", origin);
+ 
+     return false;
+@@ -1248,7 +1321,9 @@ void Scene::addConfiguration(Configuration callback, bool runtime, std::source_l
+   auto &state = *state_;
+ 
+   if (state.prepared) {
+-    if (runtime && state.active == State::Operation::RUN) {
++    if (runtime && (state.active == State::Operation::RUN || state.sessionActive)) {
++      State::Guard guard(state, State::Operation::RUN);
++
+       state.invoke(callback, origin);
+     } else {
+       State::Guard guard(state, State::Operation::CONFIGURE);
+@@ -1582,7 +1657,7 @@ Scene &Scene::onError(ManagedErrorHandler observer, std::source_location origin)
+ 
+   auto &state = *state_;
+ 
+-  if (state.active != State::Operation::NONE) {
++  if (state.active != State::Operation::NONE || state.sessionActive) {
+     state.fail(error(ManagedPhase::BIND, TreeError::WOULD_BLOCK, state.node()), "scene.onError", origin);
+ 
+     return *this;
+@@ -1630,7 +1705,7 @@ Scene &Scene::reportOnError(SceneReportHandler sink, std::source_location origin
+ 
+   auto &state = *state_;
+ 
+-  if (state.active != State::Operation::NONE) {
++  if (state.active != State::Operation::NONE || state.sessionActive) {
+     state.fail(error(ManagedPhase::BIND, TreeError::WOULD_BLOCK, state.node()), "scene.reportOnError", origin);
+ 
+     return *this;
+@@ -1870,6 +1945,10 @@ std::expected<ApplicationStats, ManagedError> Scene::run(ApplicationTerminal &te
+ 
+ std::expected<ApplicationStats, ManagedError> Scene::runImpl(ApplicationTerminal *terminal, std::stop_token stop,
+                                                              std::source_location origin) {
++  if (owner_ == std::this_thread::get_id() && state_ && state_->sessionActive) {
++    return std::unexpected(error(ManagedPhase::RUN, TreeError::WOULD_BLOCK, state_->node()));
++  }
++
+   detail::SetupFailureScope lifecycleScope({}, nullptr, nullptr);
+   auto prepared = prepareChecked(origin);
+ 
+@@ -1886,26 +1965,78 @@ std::expected<ApplicationStats, ManagedError> Scene::runImpl(ApplicationTerminal
+     return terminal ? state.managed->run(*terminal, stop) : state.managed->run(stop);
+   }();
+ 
+-  if (!result) {
+-    if (state.failure) {
+-      if (result.error().application) {
+-        state.failure->application = result.error().application;
+-      }
++  return state.finishRun(std::move(result), origin);
++}
+ 
+-      if (result.error().cleanup) {
+-        state.failure->cleanup = result.error().cleanup;
+-      }
+-    } else {
+-      state.fail(result.error(), "scene.run", origin, false);
+-      state.notified = detail::SceneAccess::runFailureNotified(*state.managed);
++std::expected<void, ManagedError> Scene::start(ApplicationReadyTerminal &terminal, std::stop_token stop,
++                                               std::source_location origin) {
++  if (owner_ != std::this_thread::get_id()) {
++    return std::unexpected(error(ManagedPhase::RUN, TreeError::WRONG_THREAD));
++  }
++
++  if (!state_) {
++    return std::unexpected(error(ManagedPhase::RUN, TreeError::CLOSED));
++  }
++
++  if (state_->active != State::Operation::NONE || state_->sessionActive) {
++    return std::unexpected(error(ManagedPhase::RUN, TreeError::WOULD_BLOCK, state_->node()));
++  }
++
++  detail::SetupFailureScope lifecycleScope({}, nullptr, nullptr);
++  auto prepared = prepareChecked(origin);
++
++  if (!prepared) {
++    return prepared;
++  }
++
++  auto &state = *state_;
++  State::Guard guard(state, State::Operation::RUN);
++  detail::CurrentSceneScope current(state.anchor);
++
++  state.sessionStarted = state.sessionActive = true;
++
++  auto result = state.managed->start(terminal, stop);
++
++  if (!result || state.stopped) {
++    auto finished = state.finishStep(result ? state.managed->step() : std::unexpected(result.error()), origin);
++
++    if (!finished) {
++      return std::unexpected(finished.error());
+     }
+   }
+ 
+-  // Native open may fail before Application calls scene.stop; explicit close is mandatory.
+-  (void)state.cleanup(origin);
+-  state.notifyFallback();
++  return {};
++}
++
++std::expected<ApplicationStep, ManagedError> Scene::step(std::source_location origin) {
++  if (owner_ != std::this_thread::get_id()) {
++    return std::unexpected(error(ManagedPhase::RUN, TreeError::WRONG_THREAD));
++  }
++
++  if (!state_) {
++    return std::unexpected(error(ManagedPhase::RUN, TreeError::CLOSED));
++  }
++
++  auto &state = *state_;
++
++  if (state.active != State::Operation::NONE) {
++    return std::unexpected(error(ManagedPhase::RUN, TreeError::WOULD_BLOCK, state.node()));
++  }
++
++  if (state.sessionResult) {
++    return *state.sessionResult;
++  }
++
++  if (!state.sessionStarted) {
++    return std::unexpected(
++      error(ManagedPhase::RUN, state.completed ? TreeError::CLOSED : TreeError::INVALID_ARGUMENT, state.node()));
++  }
+ 
+-  return state.failure ? std::unexpected(*state.failure) : result;
++  detail::SetupFailureScope lifecycleScope({}, nullptr, nullptr);
++  State::Guard guard(state, State::Operation::RUN);
++  detail::CurrentSceneScope current(state.anchor);
++
++  return state.finishStep(state.managed->step(), origin);
+ }
+ 
+ std::expected<void, ManagedError> Scene::close(std::source_location origin) {
+@@ -1920,6 +2051,10 @@ std::expected<void, ManagedError> Scene::close(std::source_location origin) {
+   detail::SetupFailureScope lifecycleScope({}, nullptr, nullptr);
+   auto &state = *state_;
+ 
++  if (state.sessionActive) {
++    return std::unexpected(error(ManagedPhase::CLEANUP, TreeError::WOULD_BLOCK, state.node()));
++  }
++
+   if (state.active != State::Operation::NONE) {
+     auto cause = error(ManagedPhase::CLEANUP, TreeError::WOULD_BLOCK, state.node());
+ 
+diff --git a/tests/browser_terminal.cpp b/tests/browser_terminal.cpp
+new file mode 100644
+index 0000000..396b5bb
+--- /dev/null
++++ b/tests/browser_terminal.cpp
+@@ -0,0 +1,182 @@
++// Copyright (c) 2026 ttldtor.
++// SPDX-License-Identifier: BSL-1.0
++#include "../examples/wasm_gallery/browser_terminal.hpp"
++
++#include <iostream>
++#include <source_location>
++#include <stdexcept>
++#include <vector>
++
++namespace {
++using namespace portals;
++using wasm_gallery::BrowserTerminal;
++
++void check(bool value, std::source_location where = std::source_location::current()) {
++  if (!value) {
++    throw std::runtime_error("browser terminal check line " + std::to_string(where.line()));
++  }
++}
++
++void errorIs(const TerminalError &error, TerminalErrorKind kind, int native = 0) {
++  check(error.kind == kind && error.native_code == native);
++}
++
++void inputAndResize() {
++  auto made = BrowserTerminal::create({80, 24}, [](std::string_view bytes) {
++    return std::expected<std::size_t, TerminalError>{bytes.size()};
++  });
++  check(made.has_value());
++  auto &terminal = **made;
++  check(terminal.poll().status == TerminalStatus::DEADLINE);
++  check(terminal.size()->width == 80);
++  check(terminal.resize({90, 25}).has_value());
++  check(terminal.resize({100, 30}).has_value());
++
++  std::string first{"\xe2\x82", 2};
++  check(terminal.pushInput(first).has_value());
++  first[0] = 'x';
++  auto read = terminal.poll();
++  check(read.status == TerminalStatus::PROGRESS && read.bytes == std::string("\xe2\x82", 2));
++  check(read.resized && read.resized->width == 100 && read.resized->height == 30);
++  check(terminal.pushInput(std::string_view{"\xac", 1}).has_value());
++  check(terminal.poll().bytes == std::string("\xac", 1));
++  check(read.bytes == std::string("\xe2\x82", 2));
++  check(terminal.resize({100, 30}).has_value());
++  check(terminal.pushInput("").has_value());
++  check(terminal.poll().status == TerminalStatus::DEADLINE);
++}
++
++void partialOutput() {
++  std::vector<std::string> offers;
++  std::string copied;
++  std::vector<std::size_t> receipts{2, 0, 1, 3};
++  auto made = BrowserTerminal::create({80, 24}, [&](std::string_view bytes) {
++    offers.emplace_back(bytes);
++    const auto count = receipts.at(offers.size() - 1);
++    copied.append(bytes.substr(0, count));
++    return std::expected<std::size_t, TerminalError>{count};
++  });
++  auto &terminal = **made;
++  const std::string bytes{"A\xe2\x82\xac"
++                          "BC",
++                          6};
++
++  check(terminal.submit(bytes).has_value());
++  check(offers.empty() && terminal.pendingBytes() == 6);
++  auto rejected = terminal.submit("other");
++  check(!rejected);
++  errorIs(rejected.error(), TerminalErrorKind::OUTPUT_PENDING);
++
++  auto write = terminal.flushReady();
++  check(write.status == TerminalStatus::DEADLINE && write.completed == 2 && write.pending == 4);
++  write = terminal.flushReady();
++  check(write.status == TerminalStatus::DEADLINE && write.completed == 0 && write.pending == 4);
++  write = terminal.flushReady();
++  check(write.completed == 1 && write.pending == 3);
++  write = terminal.flushReady();
++  check(write.status == TerminalStatus::PROGRESS && write.completed == 3 && write.pending == 0);
++  check((offers == std::vector<std::string>{bytes, bytes.substr(2), bytes.substr(2), bytes.substr(3)}));
++  check(copied == bytes);
++  check(terminal.flushReady().completed == 0 && offers.size() == 4);
++  check(terminal.submit("").has_value());
++  check(terminal.flushReady().status == TerminalStatus::PROGRESS && offers.size() == 4);
++}
++
++void boundsAndFailures() {
++  TerminalOptions options;
++  options.max_input_bytes = 3;
++  options.max_output_bytes = 4;
++  auto sink = [](std::string_view bytes) {
++    return std::expected<std::size_t, TerminalError>{bytes.size()};
++  };
++  auto made = BrowserTerminal::create({0, 0}, sink, options);
++  auto &terminal = **made;
++  auto result = terminal.submit("12345");
++  check(!result);
++  errorIs(result.error(), TerminalErrorKind::OUTPUT_LIMIT);
++  check(terminal.pendingBytes() == 0 && terminal.submit("1234").has_value());
++  check(terminal.pushInput("12").has_value());
++  result = terminal.pushInput("34");
++  check(!result);
++  errorIs(result.error(), TerminalErrorKind::INPUT_LIMIT);
++  auto read = terminal.poll();
++  check(read.status == TerminalStatus::FAILED && read.error && read.bytes.empty());
++  errorIs(*read.error, TerminalErrorKind::INPUT_LIMIT);
++  check(!terminal.size());
++  check(!terminal.recordFailure({TerminalErrorKind::SYSTEM, 42}));
++  errorIs(*terminal.flushReady().error, TerminalErrorKind::INPUT_LIMIT);
++  check(terminal.close().has_value() && terminal.close().has_value());
++  check(terminal.pendingBytes() == 0);
++  result = terminal.pushInput("late");
++  check(!result);
++  errorIs(result.error(), TerminalErrorKind::CLOSED);
++  check(!terminal.resize({1, 1}) && !terminal.submit("late"));
++  errorIs(*terminal.poll().error, TerminalErrorKind::CLOSED);
++  errorIs(*terminal.flushReady().error, TerminalErrorKind::CLOSED);
++  check(!terminal.recordFailure({TerminalErrorKind::SYSTEM, 43}));
++  errorIs(*terminal.poll().error, TerminalErrorKind::CLOSED);
++
++  options.max_input_bytes = 0;
++  check(!BrowserTerminal::create({1, 1}, sink, options));
++  options.max_input_bytes = 3;
++  options.max_output_bytes = 0;
++  check(!BrowserTerminal::create({1, 1}, sink, options));
++  check(!BrowserTerminal::create({-1, 1}, sink));
++  check(!BrowserTerminal::create({1, 1}, {}));
++}
++
++void stopAndSinkErrors() {
++  int calls{};
++  auto made = BrowserTerminal::create({1, 1}, [&](std::string_view) -> std::expected<std::size_t, TerminalError> {
++    ++calls;
++    return std::unexpected(TerminalError{TerminalErrorKind::SYSTEM, 71, 72});
++  });
++  auto &terminal = **made;
++  check(terminal.submit("abc").has_value() && terminal.pushInput("x").has_value());
++  check(terminal.resize({0, 0}).has_value());
++  std::stop_source stop;
++  stop.request_stop();
++  check(terminal.poll(stop.get_token()).status == TerminalStatus::STOPPED);
++  auto write = terminal.flushReady(stop.get_token());
++  check(write.status == TerminalStatus::STOPPED && write.completed == 0 && write.pending == 3 && calls == 0);
++  const auto ready = terminal.poll();
++
++  check(ready.bytes == "x" && ready.resized && ready.resized->width == 0 && ready.resized->height == 0);
++  write = terminal.flushReady();
++  check(write.status == TerminalStatus::FAILED && write.completed == 0 && write.pending == 3 && calls == 1);
++  errorIs(*write.error, TerminalErrorKind::SYSTEM, 71);
++  check(write.error->restoration_code == 72);
++  errorIs(*terminal.flushReady().error, TerminalErrorKind::SYSTEM, 71);
++  check(calls == 1);
++  errorIs(terminal.submit("new").error(), TerminalErrorKind::SYSTEM, 71);
++  check(terminal.close().has_value() && terminal.close().has_value() && calls == 1);
++
++  made = BrowserTerminal::create({1, 1}, [&](std::string_view bytes) {
++    ++calls;
++    return std::expected<std::size_t, TerminalError>{bytes.size() + 1};
++  });
++  check((*made)->submit("x").has_value());
++  write = (*made)->flushReady();
++  check(write.status == TerminalStatus::FAILED && write.completed == 0 && write.pending == 1);
++  errorIs(*write.error, TerminalErrorKind::OUTPUT_UNCERTAIN);
++  check((*made)->flushReady().status == TerminalStatus::FAILED && calls == 2);
++
++  made = BrowserTerminal::create({1, 1}, [](std::string_view) -> std::expected<std::size_t, TerminalError> {
++    throw std::runtime_error("sink");
++  });
++  check((*made)->submit("x").has_value());
++  errorIs(*(*made)->flushReady().error, TerminalErrorKind::OUTPUT_UNCERTAIN);
++}
++} // namespace
++
++int main() {
++  try {
++    inputAndResize();
++    partialOutput();
++    boundsAndFailures();
++    stopAndSinkErrors();
++  } catch (const std::exception &error) {
++    std::cerr << error.what() << '\n';
++    return 1;
++  }
++}
+diff --git a/tests/bundle_script_test.cmake b/tests/bundle_script_test.cmake
+index 7dff6c3..a1ca0d2 100644
+--- a/tests/bundle_script_test.cmake
++++ b/tests/bundle_script_test.cmake
+@@ -68,6 +68,10 @@ set(consumer "${testRoot}/external consumer é")
+ bundleStageConsumer("${SOURCE_DIR}" "${consumer}")
+ file(GLOB_RECURSE exampleInputs LIST_DIRECTORIES FALSE RELATIVE "${SOURCE_DIR}"
+   "${SOURCE_DIR}/examples/*" "${SOURCE_DIR}/tests/examples/*" "${SOURCE_DIR}/tests/support/*")
++list(FILTER exampleInputs EXCLUDE REGEX "(^|/)node_modules(/|$)")
++if(EXISTS "${consumer}/examples/wasm_gallery/web/node_modules")
++  message(FATAL_ERROR "Browser development dependencies were staged as native consumer sources")
++endif()
+ file(GLOB_RECURSE fixtureInputs LIST_DIRECTORIES FALSE RELATIVE "${SOURCE_DIR}/tests/package_consumer"
+   "${SOURCE_DIR}/tests/package_consumer/*")
+ foreach(relative IN LISTS exampleInputs fixtureInputs)
+diff --git a/tests/move_only_function.cpp b/tests/move_only_function.cpp
+new file mode 100644
+index 0000000..e0151d2
+--- /dev/null
++++ b/tests/move_only_function.cpp
+@@ -0,0 +1,139 @@
++// Copyright (c) 2026 ttldtor.
++// SPDX-License-Identifier: BSL-1.0
++
++#include <portals/detail/move_only_function.hpp>
++#include <portals/ui.hpp>
++
++#ifdef __EMSCRIPTEN__
++#  include "../examples/gallery/fluent_form.hpp"
++#endif
++
++#include <iostream>
++#include <memory>
++#include <stdexcept>
++#include <string_view>
++#include <type_traits>
++#include <utility>
++
++namespace {
++int failures = 0;
++
++static_assert(std::is_nothrow_move_assignable_v<portals::detail::BasicMoveOnlyFunction<int(int)>>);
++
++void check(bool condition, const char *message) {
++  if (!condition) {
++    std::cerr << message << '\n';
++    ++failures;
++  }
++}
++
++template <template <class> class Function> void exerciseCallable() {
++  static_assert(!std::is_copy_constructible_v<Function<int(int)>>);
++  static_assert(!std::is_copy_assignable_v<Function<int(int)>>);
++  static_assert(std::is_nothrow_move_constructible_v<Function<int(int)>>);
++  static_assert(std::is_move_assignable_v<Function<int(int)>>);
++
++  Function<void()> empty;
++  Function<void()> null = nullptr;
++  void (*nullPointer)() = nullptr;
++  Function<void()> fromNullPointer = nullPointer;
++
++  check(!empty && !null && !fromNullPointer, "default and null targets must be empty");
++
++  Function<int(int)> value = [owned = std::make_unique<int>(7)](int delta) mutable {
++    *owned += delta;
++
++    return *owned;
++  };
++
++  check(value(3) == 10 && value(2) == 12, "move-only capture retains mutable state and result");
++
++  Function<int(int)> moved = std::move(value);
++
++  check(!value && static_cast<bool>(moved), "move construction transfers target and empties source");
++  check(moved(1) == 13, "moved target retains capture state");
++
++  auto previous = std::make_shared<int>(0);
++  std::weak_ptr<int> previousObserver = previous;
++  Function<int(int)> assigned = [owned = std::move(previous)](int delta) {
++    return *owned + delta;
++  };
++
++  assigned = std::move(moved);
++  check(previousObserver.expired(), "move assignment releases previous captures");
++  check(!moved && static_cast<bool>(assigned), "move assignment transfers target and empties source");
++  check(assigned(1) == 14, "move-assigned target retains capture state");
++
++  auto lifetime = std::make_shared<int>(0);
++  std::weak_ptr<int> observer = lifetime;
++  Function<void()> released = [owned = std::move(lifetime)] {
++  };
++
++  check(!observer.expired(), "callable owns captured lifetime");
++  released = nullptr;
++  check(!released && observer.expired(), "null assignment releases target captures");
++
++  int result = 0;
++  Function<void(std::unique_ptr<int>, int &)> consume = [&result](std::unique_ptr<int> input, int &increment) {
++    result = *input + increment;
++    ++increment;
++
++    return 1;
++  };
++  int increment = 4;
++
++  consume(std::make_unique<int>(6), increment);
++  check(result == 10 && increment == 5, "void result discards return and forwards owning/reference arguments");
++
++  Function<int()> throwing = []() -> int {
++    throw std::runtime_error("callable failure");
++  };
++  bool caught = false;
++
++  try {
++    (void)throwing();
++  } catch (const std::runtime_error &error) {
++    caught = std::string_view(error.what()) == "callable failure";
++  }
++
++  check(caught && static_cast<bool>(throwing), "call exceptions propagate without clearing target");
++
++  auto destroyed = std::make_shared<int>(0);
++  std::weak_ptr<int> destroyedObserver = destroyed;
++
++  {
++    Function<void()> scoped = [owned = std::move(destroyed)] {
++    };
++
++    check(!destroyedObserver.expired(), "scoped callable owns capture");
++  }
++
++  check(destroyedObserver.expired(), "destruction releases target captures");
++}
++
++#if defined(__cpp_lib_move_only_function) && __cpp_lib_move_only_function >= 202110L
++static_assert(std::is_same_v<portals::detail::MoveOnlyFunction<void()>, std::move_only_function<void()>>);
++static_assert(std::is_same_v<portals::ui::Setup<portals::Widget>,
++                             std::move_only_function<std::expected<void, portals::ManagedError>(
++                               portals::ManagedScene &, portals::Node<portals::Widget>)>>);
++static_assert(
++  std::is_same_v<portals::ui::CommandLineParser,
++                 std::move_only_function<std::expected<portals::ui::LaunchAction, portals::ui::CommandLineError>(
++                   const portals::ui::app::Arguments &)>>);
++#else
++static_assert(
++  std::is_same_v<portals::detail::MoveOnlyFunction<void()>, portals::detail::BasicMoveOnlyFunction<void()>>);
++#endif
++} // namespace
++
++int main() {
++  exerciseCallable<portals::detail::BasicMoveOnlyFunction>();
++  exerciseCallable<portals::detail::MoveOnlyFunction>();
++
++#ifdef __EMSCRIPTEN__
++  example::Options options;
++  auto scene = gallery::form(portals::ui::opts(options));
++#endif
++
++  return failures == 0 ? 0 : 1;
++}
+diff --git a/tests/runtime_session.cpp b/tests/runtime_session.cpp
+new file mode 100644
+index 0000000..38ca088
+--- /dev/null
++++ b/tests/runtime_session.cpp
+@@ -0,0 +1,310 @@
++// Copyright (c) 2026 ttldtor.
++// SPDX-License-Identifier: BSL-1.0
++#include "support/examples/replay/terminal.hpp"
++#include <algorithm>
++#include <deque>
++#include <limits>
++#include <portals/application.hpp>
++#include <source_location>
++#include <stdexcept>
++#include <thread>
++
++namespace {
++using namespace portals;
++
++void check(bool value, std::source_location where = std::source_location::current()) {
++  if (!value) {
++    throw std::runtime_error("runtime session check line " + std::to_string(where.line()));
++  }
++}
++
++template <class T, class E> T take(std::expected<T, E> value) {
++  check(bool(value));
++
++  if constexpr (!std::is_void_v<T>) {
++    return std::move(*value);
++  }
++}
++
++class ReadyTerminal final : public ApplicationReadyTerminal {
++public:
++  SchedulerClock clock() noexcept {
++    return {[](void *context) noexcept {
++              return static_cast<ReadyTerminal *>(context)->time;
++            },
++            this};
++  }
++
++  TerminalRead poll(std::stop_token) override {
++    ++polls;
++
++    if (input.empty()) {
++      return {TerminalStatus::DEADLINE};
++    }
++
++    auto batch = std::move(input.front());
++    input.pop_front();
++
++    return batch;
++  }
++
++  std::expected<CellSize, TerminalError> size() const override {
++    return CellSize{12, 3};
++  }
++
++  std::expected<void, TerminalError> submit(std::string bytes) override {
++    check(pending.empty());
++    ++submissions;
++    pending = std::move(bytes);
++
++    return {};
++  }
++
++  TerminalWrite flushReady(std::stop_token) override {
++    ++flushes;
++
++    if (failFlush) {
++      return {TerminalStatus::FAILED, 0, pending.size(), TerminalError{TerminalErrorKind::OUTPUT_UNCERTAIN, 91}};
++    }
++
++    const auto count = std::min(chunk, pending.size());
++    output.append(pending, 0, count);
++    pending.erase(0, count);
++
++    return {pending.empty() ? TerminalStatus::PROGRESS : TerminalStatus::DEADLINE, count, pending.size(), {}};
++  }
++
++  std::expected<void, TerminalError> close() noexcept override {
++    ++closes;
++
++    if (failClose) {
++      return std::unexpected(TerminalError{TerminalErrorKind::SYSTEM, 17});
++    }
++
++    return {};
++  }
++
++  void bytes(std::string value) {
++    input.push_back({TerminalStatus::PROGRESS, std::move(value)});
++  }
++
++  void eof() {
++    input.push_back({TerminalStatus::END_OF_INPUT});
++  }
++
++  SchedulerTime time{};
++  std::deque<TerminalRead> input;
++  std::string output, pending;
++  std::size_t chunk{std::numeric_limits<std::size_t>::max()}, polls{}, flushes{}, submissions{}, closes{};
++  bool failFlush{}, failClose{};
++};
++
++class Scene final : public ApplicationScene {
++public:
++  std::expected<bool, TreeError> input(Application &app, const InputEvent &event) override {
++    events.push_back(event);
++
++    if (reenter) {
++      auto nested = app.step();
++      check(!nested && std::get<ApplicationFailure>(nested.error().cause) == ApplicationFailure::REENTRANT_OPERATION);
++      ++rejections;
++    }
++
++    if (stopOnInput) {
++      app.requestStop();
++    }
++
++    take(app.tree().invalidate(app.root(), Invalidation::PAINT));
++
++    return true;
++  }
++
++  void stop(Application &) override {
++    ++stops;
++  }
++
++  std::vector<InputEvent> events;
++  std::size_t stops{}, rejections{};
++  bool stopOnInput{}, reenter{};
++};
++
++void idleAndLifecycle() {
++  ReadyTerminal terminal;
++  auto app = take(Application::create({}, terminal.clock()));
++  Scene scene;
++  check(!app->step());
++  take(app->start(scene, terminal));
++  auto idle = take(app->step());
++  check(!idle.finished && idle.stats.frames == 1 && terminal.polls == 1 && terminal.flushes == 1);
++  idle = take(app->step());
++  check(!idle.finished && idle.stats.frames == 1 && terminal.polls == 2 && terminal.flushes == 1);
++  check(!app->start(scene, terminal) && !app->run(scene));
++
++  std::thread wrong([&] {
++    auto rejected = app->step();
++    check(!rejected && std::get<TreeError>(rejected.error().cause) == TreeError::WRONG_THREAD);
++  });
++  wrong.join();
++  check(terminal.closes == 0 && scene.stops == 0);
++  app->requestStop();
++  auto stopped = take(app->step());
++  check(stopped.finished && terminal.closes == 1 && scene.stops == 1);
++  check(take(app->step()).finished && terminal.closes == 1 && scene.stops == 1);
++}
++
++void decoderAndBudget() {
++  ReadyTerminal terminal;
++  ApplicationOptions options;
++  options.scheduler.control_capacity = options.scheduler.control_budget = 1;
++  options.inputBudget = 2;
++  auto app = take(Application::create(options, terminal.clock()));
++  Scene scene;
++  take(app->start(scene, terminal));
++  terminal.bytes("abcdef");
++  take(app->step());
++  terminal.bytes("\xe7\x95");
++  terminal.bytes("\x8c");
++  terminal.bytes("\x1b");
++
++  for (std::size_t i = 0; i < 40; ++i) {
++    take(app->step());
++  }
++
++  terminal.time = 1000;
++  take(app->step());
++  terminal.eof();
++  bool done{};
++
++  for (std::size_t i = 0; i < 40 && !done; ++i) {
++    done = take(app->step()).finished;
++  }
++
++  check(done && scene.events.size() == 8 && terminal.closes == 1);
++  check(std::get<TextInputEvent>(scene.events[6]).scalar == U'界');
++  check(std::get<KeyEvent>(scene.events[7]).key == InputKey::ESCAPE);
++  check(app->scheduler().metrics().control.rejected > 0);
++}
++
++void frameCapAndEofCutoff() {
++  ReadyTerminal terminal;
++  auto app = take(Application::create({}, terminal.clock()));
++  Scene scene;
++  take(app->start(scene, terminal));
++  check(take(app->step()).stats.frames == 1);
++  terminal.time = 1;
++  terminal.bytes("x");
++  check(take(app->step()).stats.frames == 1);
++  terminal.time = 33;
++  check(take(app->step()).stats.frames == 1);
++  terminal.time = 34;
++  check(take(app->step()).stats.frames == 2);
++  terminal.time = 35;
++  terminal.bytes("y");
++  take(app->step());
++  terminal.eof();
++  auto ended = take(app->step());
++  check(ended.finished && ended.stats.frames == 2 && ended.stats.inputs == 2);
++}
++
++void partialAndFailures() {
++  ReadyTerminal terminal;
++  terminal.chunk = 2;
++  auto app = take(Application::create({}, terminal.clock()));
++  Scene scene;
++  take(app->start(scene, terminal));
++  auto first = take(app->step());
++  check(first.stats.bytes == 2 && !terminal.pending.empty());
++  terminal.eof();
++  bool done{};
++
++  for (std::size_t i = 0; i < 1000 && !done; ++i) {
++    done = take(app->step()).finished;
++  }
++
++  check(done && terminal.submissions == 1 && terminal.pending.empty() && terminal.closes == 1);
++  check(app->stats().bytes == terminal.output.size());
++
++  ReadyTerminal failed;
++  failed.failFlush = failed.failClose = true;
++  auto failing = take(Application::create({}, failed.clock()));
++  Scene failureScene;
++  take(failing->start(failureScene, failed));
++  auto error = failing->step();
++  check(!error && error.error().phase == ApplicationPhase::FLUSH && error.error().restoration);
++  check(std::get<TerminalError>(error.error().cause).kind == TerminalErrorKind::OUTPUT_UNCERTAIN);
++  check(!failing->step() && failed.flushes == 1 && failed.closes == 1 && failureScene.stops == 1);
++}
++
++void cancellationAndDestruction() {
++  ReadyTerminal terminal;
++  Scene scene;
++  {
++    auto app = take(Application::create({}, terminal.clock()));
++    take(app->start(scene, terminal));
++    take(app->step());
++  }
++  check(terminal.closes == 1 && scene.stops == 1);
++
++  ReadyTerminal cancelled;
++  auto app = take(Application::create({}, cancelled.clock()));
++  Scene cancelledScene;
++  std::stop_source stop;
++  stop.request_stop();
++  take(app->start(cancelledScene, cancelled, stop.get_token()));
++  check(take(app->step()).finished && cancelled.polls == 0 && cancelled.closes == 1 && cancelledScene.stops == 1);
++
++  ReadyTerminal later;
++  auto laterApp = take(Application::create({}, later.clock()));
++  Scene laterScene;
++  std::stop_source laterStop;
++  take(laterApp->start(laterScene, later, laterStop.get_token()));
++  take(laterApp->step());
++  laterStop.request_stop();
++  check(take(laterApp->step()).finished && later.polls == 1 && later.closes == 1 && laterScene.stops == 1);
++
++  ReadyTerminal callback;
++  auto nested = take(Application::create({}, callback.clock()));
++  Scene nestedScene;
++  nestedScene.reenter = nestedScene.stopOnInput = true;
++  take(nested->start(nestedScene, callback));
++  callback.bytes("x");
++  check(take(nested->step()).finished && nestedScene.rejections == 1 && callback.closes == 1);
++}
++
++void nativeTraceEquivalence() {
++  example::ReplayTerminal legacy({{50, "ab", {}}, {100, "c", CellSize{20, 4}}}, 200, {12, 3});
++  auto native = take(Application::create({}, legacy.clock()));
++  Scene nativeScene;
++  const auto nativeStats = take(native->run(nativeScene, legacy));
++  ReadyTerminal ready;
++  auto stepped = take(Application::create({}, ready.clock()));
++  Scene steppedScene;
++  take(stepped->start(steppedScene, ready));
++  ApplicationStep result;
++
++  for (ready.time = 10; ready.time <= 200; ready.time += 10) {
++    if (ready.time == 50) {
++      ready.bytes("ab");
++    } else if (ready.time == 100) {
++      ready.input.push_back({TerminalStatus::PROGRESS, "c", {}, CellSize{20, 4}});
++    } else if (ready.time == 200) {
++      ready.eof();
++    }
++
++    result = take(stepped->step());
++  }
++
++  check(result.finished && result.stats.inputs == nativeStats.inputs && result.stats.frames == nativeStats.frames);
++  check(result.stats.bytes == nativeStats.bytes && ready.output == legacy.output);
++  check(nativeScene.events.size() == steppedScene.events.size() && nativeScene.stops == steppedScene.stops);
++}
++} // namespace
++
++int main() {
++  idleAndLifecycle();
++  decoderAndBudget();
++  frameCapAndEofCutoff();
++  partialAndFailures();
++  cancellationAndDestruction();
++  nativeTraceEquivalence();
++}
+diff --git a/tests/ui_session.cpp b/tests/ui_session.cpp
+new file mode 100644
+index 0000000..8c9d65b
+--- /dev/null
++++ b/tests/ui_session.cpp
+@@ -0,0 +1,314 @@
++// Copyright (c) 2026 ttldtor.
++// SPDX-License-Identifier: BSL-1.0
++#include "../examples/gallery/fluent_form.hpp"
++#include <portals/ui.hpp>
++
++#include <deque>
++#include <source_location>
++#include <stdexcept>
++#include <thread>
++
++namespace {
++using namespace portals;
++
++void check(bool value, std::source_location where = std::source_location::current()) {
++  if (!value) {
++    throw std::runtime_error("ui session check line " + std::to_string(where.line()));
++  }
++}
++
++template <class T, class E> T take(std::expected<T, E> value) {
++  check(bool(value));
++
++  if constexpr (!std::is_void_v<T>) {
++    return std::move(*value);
++  }
++}
++
++template <class T> void rejected(std::expected<T, ManagedError> value, TreeError cause) {
++  check(!value);
++
++  const auto *actual = std::get_if<TreeError>(&value.error().cause);
++
++  check(actual && *actual == cause);
++}
++
++void noCurrent() {
++  check(ui::detail::CurrentSceneScope::snapshot().expired());
++  rejected(ui::detail::SceneAccess::currentRef().quit(), TreeError::CLOSED);
++}
++
++class ReadyTerminal final : public ApplicationReadyTerminal {
++public:
++  SchedulerClock clock() noexcept {
++    return {[](void *context) noexcept {
++              return static_cast<ReadyTerminal *>(context)->time;
++            },
++            this};
++  }
++
++  TerminalRead poll(std::stop_token) override {
++    ++polls;
++
++    if (input.empty()) {
++      return {TerminalStatus::DEADLINE};
++    }
++
++    auto result = std::move(input.front());
++
++    input.pop_front();
++
++    return result;
++  }
++
++  std::expected<CellSize, TerminalError> size() const override {
++    return CellSize{80, 24};
++  }
++
++  std::expected<void, TerminalError> submit(std::string bytes) override {
++    check(pending.empty());
++    pending = std::move(bytes);
++    ++submissions;
++
++    return {};
++  }
++
++  TerminalWrite flushReady(std::stop_token) override {
++    const auto count = pending.size();
++
++    output += pending;
++    pending.clear();
++
++    return {TerminalStatus::PROGRESS, count, 0, {}};
++  }
++
++  std::expected<void, TerminalError> close() noexcept override {
++    ++closes;
++
++    if (failClose) {
++      return std::unexpected(TerminalError{TerminalErrorKind::SYSTEM, 17});
++    }
++
++    return {};
++  }
++
++  void bytes(std::string value) {
++    input.push_back({TerminalStatus::PROGRESS, std::move(value)});
++  }
++
++  SchedulerTime time{};
++  std::deque<TerminalRead> input;
++  std::string pending, output;
++  int polls{}, submissions{}, closes{};
++  bool failClose{};
++};
++
++ui::SceneOptions policies(ReadyTerminal &terminal) {
++  ui::SceneOptions result;
++
++  result.clock = terminal.clock();
++
++  return result;
++}
++
++void progressAndContext() {
++  ReadyTerminal terminal;
++  ui::Ref<Label> label;
++  auto scene = ui::scene(ui::label(label, "session"), policies(terminal));
++  ManagedScene *managed{};
++  int stops{}, keys{};
++
++  scene.configure([&](ManagedScene &owner) {
++    managed = &owner;
++  });
++  scene.onStop([&] {
++    ++stops;
++    noCurrent();
++    check(take(label.text().get()) == "session");
++  });
++  scene.onKey("q", [&] {
++    ++keys;
++    check(!ui::detail::CurrentSceneScope::snapshot().expired());
++    rejected(scene.step(), TreeError::WOULD_BLOCK);
++    rejected(managed->step(), TreeError::WOULD_BLOCK);
++    rejected(scene.start(terminal), TreeError::WOULD_BLOCK);
++    rejected(managed->start(terminal), TreeError::WOULD_BLOCK);
++    rejected(scene.close(), TreeError::WOULD_BLOCK);
++    rejected(managed->close(), TreeError::WOULD_BLOCK);
++    ui::quit();
++  });
++  rejected(scene.step(), TreeError::INVALID_ARGUMENT);
++  take(scene.start(terminal));
++  noCurrent();
++  rejected(scene.close(), TreeError::WOULD_BLOCK);
++  rejected(managed->close(), TreeError::WOULD_BLOCK);
++  rejected(scene.start(terminal), TreeError::WOULD_BLOCK);
++  check(!take(scene.step()).finished);
++  check(terminal.submissions == 1 && !terminal.output.empty());
++  check(!take(scene.step()).finished);
++  check(terminal.submissions == 1);
++  noCurrent();
++
++  std::thread worker([&] {
++    rejected(scene.step(), TreeError::WRONG_THREAD);
++    rejected(scene.start(terminal), TreeError::WRONG_THREAD);
++    rejected(managed->step(), TreeError::WRONG_THREAD);
++  });
++
++  worker.join();
++  terminal.bytes("q");
++
++  auto finished = take(scene.step());
++
++  check(finished.finished && stops == 1 && keys == 1 && terminal.closes == 1);
++  check(take(scene.step()).stats.iterations == finished.stats.iterations);
++  check(take(managed->step()).finished);
++  check(stops == 1 && terminal.closes == 1);
++  take(scene.checked());
++  take(scene.close());
++  rejected(scene.start(terminal), TreeError::CLOSED);
++  noCurrent();
++}
++
++void activeDestructionAndMove() {
++  ReadyTerminal terminal;
++  int stops{};
++
++  {
++    auto original = ui::scene(ui::label("move"), policies(terminal));
++
++    original.onStop([&] {
++      ++stops;
++      noCurrent();
++    });
++    take(original.start(terminal));
++    check(!take(original.step()).finished);
++
++    auto moved = std::move(original);
++
++    rejected(original.step(), TreeError::CLOSED);
++    check(!take(moved.step()).finished);
++    noCurrent();
++  }
++
++  check(stops == 1 && terminal.closes == 1);
++  noCurrent();
++
++  ReadyTerminal directTerminal;
++  auto app = take(Application::create({}, directTerminal.clock()));
++
++  {
++    auto managed = take(ManagedScene::create(*app));
++
++    take(managed->start(directTerminal));
++    check(!take(managed->step()).finished);
++  }
++
++  check(directTerminal.closes == 1);
++}
++
++void errorsAndCancellation() {
++  ReadyTerminal terminal;
++  int stops{}, reports{};
++  auto scene = ui::scene(ui::label("failure"), policies(terminal));
++
++  scene.onStop([&] {
++    ++stops;
++    noCurrent();
++  });
++  scene.onError([&](const ManagedDiagnostic &) {
++    ++reports;
++  });
++  scene.onKey("x", [] {
++    throw std::runtime_error("callback");
++  });
++  take(scene.start(terminal));
++  take(scene.step());
++  terminal.failClose = true;
++  terminal.bytes("x");
++
++  auto failed = scene.step();
++
++  check(!failed && reports == 1 && stops == 1 && terminal.closes == 1);
++  check(failed.error().application.has_value());
++  check(!scene.step() && reports == 1 && stops == 1 && terminal.closes == 1);
++  noCurrent();
++
++  ReadyTerminal cancelledTerminal;
++  std::stop_source cancellation;
++  int cancelledStops{};
++  auto cancelled = ui::scene(ui::label("cancelled"), policies(cancelledTerminal));
++
++  cancelled.onStop([&] {
++    ++cancelledStops;
++  });
++  cancellation.request_stop();
++  take(cancelled.start(cancelledTerminal, cancellation.get_token()));
++  check(take(cancelled.step()).finished);
++  check(cancelledStops == 1 && cancelledTerminal.closes == 1 && cancelledTerminal.polls == 0);
++}
++
++void setupAndPrepareFailures() {
++  for (const bool duringPrepare : {false, true}) {
++    ReadyTerminal terminal;
++    int stops{}, reports{};
++    auto description = ui::label("failure").onPrepare([](Label &, Node<Widget>) -> std::expected<void, TreeError> {
++      throw std::runtime_error("prepare");
++    });
++    auto scene = ui::scene(std::move(description), policies(terminal));
++
++    scene.onStop([&] {
++      ++stops;
++      noCurrent();
++    });
++    scene.onError([&](const ManagedDiagnostic &) {
++      ++reports;
++    });
++
++    if (!duringPrepare) {
++      scene.configure([](ManagedScene &) {
++        throw std::runtime_error("setup");
++      });
++    }
++
++    auto started = scene.start(terminal);
++
++    if (duringPrepare) {
++      take(started);
++
++      auto result = scene.step();
++
++      check(!result && stops == 1 && reports == 1 && terminal.closes == 1);
++      check(!scene.step() && reports == 1 && terminal.closes == 1);
++    } else {
++      check(!started && stops == 1 && reports == 1 && terminal.closes == 0);
++      check(!scene.step() && !scene.start(terminal));
++      check(stops == 1 && reports == 1 && terminal.closes == 0);
++    }
++
++    noCurrent();
++  }
++}
++
++void galleryReuse() {
++  ReadyTerminal terminal;
++  example::Options options;
++  auto scene = gallery::form(ui::OptionsRef(options), {}, policies(terminal));
++
++  take(scene.start(terminal));
++  check(!take(scene.step()).finished);
++  check(terminal.output.find("Portals gallery") != std::string::npos);
++  terminal.bytes("\x1b[21~");
++  check(take(scene.step()).finished);
++  check(terminal.closes == 1);
++  noCurrent();
++}
++} // namespace
++
++int main() {
++  progressAndContext();
++  activeDestructionAndMove();
++  errorsAndCancellation();
++  setupAndPrepareFailures();
++  galleryReuse();
++}
+diff --git a/tests/wasm_gallery/gallery.spec.mjs b/tests/wasm_gallery/gallery.spec.mjs
+new file mode 100644
+index 0000000..16d010c
+--- /dev/null
++++ b/tests/wasm_gallery/gallery.spec.mjs
+@@ -0,0 +1,86 @@
++// Copyright (c) 2026 ttldtor.
++// SPDX-License-Identifier: BSL-1.0
++import { createRequire } from 'node:module';
++const require = createRequire(new URL('../../examples/wasm_gallery/web/package.json', import.meta.url));
++const { test, expect } = require('@playwright/test');
++
++test('real gallery accepts text, changes theme, resizes and quits', async ({ page }, testInfo) => {
++  const errors = [];
++  page.on('pageerror', error => errors.push(error.message));
++  await page.goto('/');
++  await expect(page.locator('#status')).toHaveAttribute('data-state', 'running');
++  const screen = page.locator('.xterm-accessibility-tree');
++  await expect(screen).toContainText('Portals gallery');
++  await page.screenshot({ path: testInfo.outputPath('gallery-initial.png') });
++  const input = page.locator('.xterm-helper-textarea');
++  await input.focus();
++  await input.pressSequentially(' WASM');
++  await input.evaluate(element => {
++    const data = new DataTransfer();
++    data.setData('text/plain', ' Привет');
++    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
++  });
++  await expect(screen).toContainText('WASM Привет');
++  await input.press('Enter');
++  await expect(screen).toContainText('WASM Привет');
++  const beforeTheme = await page.locator('#terminal').screenshot();
++  await input.press('F2');
++  await expect.poll(async () => (await page.locator('#terminal').screenshot()).equals(beforeTheme)).toBe(false);
++  const beforeResize = await page.locator('.xterm-screen').boundingBox();
++  await page.setViewportSize({ width: 800, height: 650 });
++  await expect.poll(async () => (await page.locator('.xterm-screen').boundingBox()).width).toBeLessThan(beforeResize.width);
++  await expect(page.locator('.xterm-rows')).toContainText('Portals gallery');
++  await expect(screen).toContainText('Portals gallery');
++  // xterm schedules its DOM paint separately from buffer/accessibility updates.
++  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
++  await page.screenshot({ path: testInfo.outputPath('gallery-interactive.png') });
++  await input.press('Tab');
++  await input.press('Space');
++  await expect(screen).toContainText('[x] Alerts');
++  await input.press('Tab');
++  await input.press('Enter');
++  await expect(page.locator('#status')).toHaveAttribute('data-state', 'running');
++  await input.press('Tab');
++  await input.press('Enter');
++  await expect(page.locator('#status')).toHaveAttribute('data-state', 'finished');
++  await expect(screen).toContainText('Portals gallery');
++  await page.setViewportSize({ width: 900, height: 700 });
++  await input.press('Control+c');
++  await expect(page.locator('#status')).toHaveAttribute('data-state', 'finished');
++  expect(errors).toEqual([]);
++});
++
++test('missing WASM is visible outside the terminal', async ({ page }) => {
++  await page.route('**/portals-gallery.wasm', route => route.abort());
++  await page.goto('/');
++  await expect(page.locator('#status')).toHaveAttribute('data-state', 'error');
++  await expect(page.locator('#status')).toContainText('Error:');
++});
++
++test('invalid WASM after fetch is visible', async ({ page }) => {
++  await page.route('**/portals-gallery.wasm', route => route.fulfill({
++    contentType: 'application/wasm', body: Buffer.from([0, 1, 2, 3]) }));
++  await page.goto('/');
++  await expect(page.locator('#status')).toHaveAttribute('data-state', 'error');
++});
++
++test('runtime input overflow reports an error and stops the host', async ({ page }) => {
++  await page.goto('/');
++  await expect(page.locator('#status')).toHaveAttribute('data-state', 'running');
++  const input = page.locator('.xterm-helper-textarea');
++  await input.focus();
++  await input.evaluate(element => { const data = new DataTransfer(); data.setData('text/plain', 'x'.repeat(5000)); element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true })); });
++  await expect(page.locator('#status')).toHaveAttribute('data-state', 'error');
++  await expect(page.locator('#status')).toContainText('queue limit');
++});
++
++for (const key of ['F10', 'Control+c']) {
++  test(`gallery quits with ${key} when Chromium delivers the key`, async ({ page }) => {
++    await page.goto('/');
++    await expect(page.locator('#status')).toHaveAttribute('data-state', 'running');
++    const input = page.locator('.xterm-helper-textarea');
++    await input.focus();
++    await input.press(key);
++    await expect(page.locator('#status')).toHaveAttribute('data-state', 'finished');
++  });
++}
+diff --git a/tests/wasm_gallery/playwright.config.mjs b/tests/wasm_gallery/playwright.config.mjs
+new file mode 100644
+index 0000000..c531a5a
+--- /dev/null
++++ b/tests/wasm_gallery/playwright.config.mjs
+@@ -0,0 +1,17 @@
++// Copyright (c) 2026 ttldtor.
++// SPDX-License-Identifier: BSL-1.0
++import { createRequire } from 'node:module';
++import { dirname, resolve } from 'node:path';
++import { fileURLToPath } from 'node:url';
++const require = createRequire(new URL('../../examples/wasm_gallery/web/package.json', import.meta.url));
++const { defineConfig } = require('@playwright/test');
++const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
++const port = process.env.PORTALS_WASM_PORT || '41803';
++export default defineConfig({
++  testDir: '.', testMatch: 'gallery.spec.mjs', workers: 1, timeout: 20000, reporter: 'line',
++  outputDir: resolve(root, 'build/browser-results'),
++  use: { browserName: 'chromium', headless: true, baseURL: `http://127.0.0.1:${port}`,
++    viewport: { width: 1100, height: 800 }, screenshot: 'only-on-failure', trace: 'retain-on-failure' },
++  webServer: { command: 'node tests/wasm_gallery/server.mjs', cwd: root,
++    url: `http://127.0.0.1:${port}`, reuseExistingServer: false, timeout: 10000 }
++});
+diff --git a/tests/wasm_gallery/server.mjs b/tests/wasm_gallery/server.mjs
+new file mode 100644
+index 0000000..ee1ffbc
+--- /dev/null
++++ b/tests/wasm_gallery/server.mjs
+@@ -0,0 +1,26 @@
++// Copyright (c) 2026 ttldtor.
++// SPDX-License-Identifier: BSL-1.0
++import http from 'node:http';
++import { readFile } from 'node:fs/promises';
++import { resolve, extname, sep } from 'node:path';
++
++const root = resolve(process.env.PORTALS_WASM_DIR || 'build/wasm-debug/wasm-gallery');
++const port = Number(process.env.PORTALS_WASM_PORT || 41803);
++const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
++  '.css': 'text/css; charset=utf-8', '.wasm': 'application/wasm', '.map': 'application/json' };
++const server = http.createServer(async (request, response) => {
++  const pathname = decodeURIComponent(new URL(request.url, `http://127.0.0.1:${port}`).pathname);
++  const file = resolve(root, '.' + (pathname === '/' ? '/index.html' : pathname));
++  if (!file.startsWith(root + sep)) { response.writeHead(403).end(); return; }
++  try {
++    const bytes = await readFile(file);
++    response.writeHead(200, { 'Content-Type': types[extname(file)] || 'application/octet-stream',
++      'Cache-Control': 'no-store' });
++    response.end(bytes);
++  } catch {
++    response.writeHead(404).end('Not found');
++  }
++});
++server.listen(port, '127.0.0.1', () => console.log(`Gallery: http://127.0.0.1:${port}`));
++process.on('SIGTERM', () => server.close(() => process.exit(0)));
++process.on('SIGINT', () => server.close(() => process.exit(0)));
+diff --git a/tests/wasm_gallery/terminal_bridge.test.mjs b/tests/wasm_gallery/terminal_bridge.test.mjs
+new file mode 100644
+index 0000000..742d4d3
+--- /dev/null
++++ b/tests/wasm_gallery/terminal_bridge.test.mjs
+@@ -0,0 +1,40 @@
++// Copyright (c) 2026 ttldtor.
++// SPDX-License-Identifier: BSL-1.0
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import { createTerminalBridge } from '../../examples/wasm_gallery/web/terminal_bridge.js';
++
++test('owned copies survive source changes, backpressure and late completion', () => {
++  const writes = [];
++  const terminal = { write(bytes, done) { writes.push({ bytes, done }); } };
++  const bridge = createTerminalBridge(terminal, 4);
++  const source = new Uint8Array([0xe2, 0x82, 0xac]);
++  assert.equal(bridge.write(source), 3);
++  source.fill(0);
++  assert.deepEqual([...writes[0].bytes], [0xe2, 0x82, 0xac]);
++  assert.equal(bridge.write(new Uint8Array([1, 2])), 0);
++  assert.equal(writes.length, 1);
++  bridge.close();
++  writes[0].done();
++  assert.equal(bridge.pendingBytes, 0);
++  assert.equal(bridge.write(new Uint8Array([1])), -1);
++});
++
++test('completed writes release capacity and preserve order', () => {
++  const writes = [];
++  const bridge = createTerminalBridge({ write(bytes, done) { writes.push({ bytes, done }); } }, 2);
++  assert.equal(bridge.write(new Uint8Array([1, 2])), 2);
++  assert.equal(bridge.write(new Uint8Array([3])), 0);
++  writes[0].done();
++  assert.equal(bridge.write(new Uint8Array([3])), 1);
++  assert.deepEqual(writes.map(write => [...write.bytes]), [[1, 2], [3]]);
++});
++
++test('sink failure is sticky and bytes are not retried', () => {
++  let calls = 0;
++  const bridge = createTerminalBridge({ write() { calls++; throw new Error('sink failed'); } });
++  assert.throws(() => bridge.write(new Uint8Array([1])), /sink failed/);
++  assert.equal(bridge.pendingBytes, 0);
++  assert.equal(bridge.write(new Uint8Array([1])), -1);
++  assert.equal(calls, 1);
++});
+diff --git a/tools/package/common.cmake b/tools/package/common.cmake
+index 226e6c1..1749fea 100644
+--- a/tools/package/common.cmake
++++ b/tools/package/common.cmake
+@@ -5,7 +5,8 @@ cmake_minimum_required(VERSION 3.24)
+ 
+ function(bundleStageConsumer source destination)
+   file(COPY "${source}/tests/package_consumer/" DESTINATION "${destination}")
+-  file(COPY "${source}/examples" DESTINATION "${destination}")
++  # Browser development dependencies are not native consumer sources.
++  file(COPY "${source}/examples" DESTINATION "${destination}" PATTERN "node_modules" EXCLUDE)
+   file(COPY "${source}/tests/examples" "${source}/tests/support" DESTINATION "${destination}/tests")
+   if(CMAKE_HOST_WIN32)
+     file(COPY "${source}/tests/support/no_dialogs.cpp" DESTINATION "${destination}")
