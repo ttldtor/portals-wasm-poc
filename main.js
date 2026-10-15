@@ -9252,6 +9252,70 @@ function createTelegramHost(onActivityChange, { window: window2 = globalThis.win
   };
 }
 
+// src/touch_input.js
+var TAP_SLOP_CSS_PIXELS = 10;
+var TAP_MAX_DURATION_MS = 500;
+function createTouchInput(terminal2, sendInput2, isActive) {
+  const screen = terminal2.element.querySelector(".xterm-screen");
+  let pending = null;
+  function cellAt(event) {
+    const rect = screen.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    if (rect.width <= 0 || rect.height <= 0 || x < 0 || y < 0 || x >= rect.width || y >= rect.height) return null;
+    return {
+      column: Math.floor(x * terminal2.cols / rect.width) + 1,
+      row: Math.floor(y * terminal2.rows / rect.height) + 1
+    };
+  }
+  function cancel() {
+    const previous = pending;
+    pending = null;
+    if (previous && screen.hasPointerCapture(previous.id)) screen.releasePointerCapture(previous.id);
+  }
+  function down(event) {
+    if (event.pointerType !== "touch" && event.pointerType !== "pen") return;
+    event.preventDefault();
+    if (!isActive() || !event.isPrimary || pending || event.button !== 0) {
+      cancel();
+      return;
+    }
+    const cell = cellAt(event);
+    if (!cell) return;
+    pending = { id: event.pointerId, x: event.clientX, y: event.clientY, cell, startedAt: event.timeStamp };
+    screen.setPointerCapture(event.pointerId);
+  }
+  function move(event) {
+    if (pending?.id !== event.pointerId) return;
+    if (Math.hypot(event.clientX - pending.x, event.clientY - pending.y) > TAP_SLOP_CSS_PIXELS) cancel();
+  }
+  function up(event) {
+    if (pending?.id !== event.pointerId) return;
+    const previous = pending;
+    const cell = cellAt(event);
+    cancel();
+    event.preventDefault();
+    if (!isActive() || !cell || event.timeStamp - previous.startedAt > TAP_MAX_DURATION_MS || cell.column !== previous.cell.column || cell.row !== previous.cell.row || Math.hypot(event.clientX - previous.x, event.clientY - previous.y) > TAP_SLOP_CSS_PIXELS) return;
+    terminal2.focus();
+    sendInput2(`\x1B[<0;${cell.column};${cell.row}M\x1B[<0;${cell.column};${cell.row}m`);
+  }
+  function interrupted(event) {
+    if (pending?.id === event.pointerId) cancel();
+  }
+  const handlers = {
+    pointerdown: down,
+    pointermove: move,
+    pointerup: up,
+    pointercancel: interrupted,
+    lostpointercapture: interrupted
+  };
+  for (const [name, handler] of Object.entries(handlers)) screen.addEventListener(name, handler, { capture: true, passive: false });
+  return { cancel, dispose() {
+    cancel();
+    for (const [name, handler] of Object.entries(handlers)) screen.removeEventListener(name, handler, { capture: true });
+  } };
+}
+
 // src/main.js
 var status = document.querySelector("#status");
 var container = document.querySelector("#terminal");
@@ -9260,6 +9324,7 @@ var active = false;
 var closed = false;
 var suspended = false;
 var frame = null;
+var touchInput;
 var host = createTelegramHost(setSuspended);
 document.querySelector("#environment").textContent = host.telegram ? `Telegram \xB7 ${host.platform}` : "Browser preview";
 var terminal = new Dl({ cursorBlink: false, scrollback: 0, fontSize: 16, screenReaderMode: true });
@@ -9278,6 +9343,7 @@ function scheduleStep() {
 }
 function setSuspended(value) {
   suspended = value;
+  touchInput?.cancel();
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
   scheduleStep();
@@ -9298,6 +9364,7 @@ function finish(error) {
   resizeObserver?.disconnect();
   listeners.forEach((listener) => listener.dispose());
   listeners = [];
+  terminal.write("\x1B[?1000l\x1B[?1006l");
   bridge.close();
   module?._portals_shutdown();
   status.dataset.state = error ? "error" : "finished";
@@ -9329,29 +9396,13 @@ async function start() {
     throw new Error(messageFromWasm());
   }
   active = true;
-  listeners.push(terminal.onData((text) => {
-    if (!active) return;
-    try {
-      const bytes = encoder.encode(text);
-      const pointer = module._malloc(bytes.length || 1);
-      if (!pointer) {
-        finish("Cannot allocate input storage.");
-        return;
-      }
-      let result;
-      try {
-        module.HEAPU8.set(bytes, pointer);
-        result = module._portals_input(pointer, bytes.length);
-      } finally {
-        module._free(pointer);
-      }
-      if (result < 0) finish(messageFromWasm());
-    } catch (error) {
-      finish(error.message || String(error));
-    }
-  }));
+  listeners.push(terminal.onData(sendInput));
+  touchInput = createTouchInput(terminal, sendInput, () => active && !suspended);
+  listeners.push(touchInput);
+  terminal.write("\x1B[?1000h\x1B[?1006h");
   listeners.push(terminal.onResize(({ cols, rows }) => {
     try {
+      touchInput.cancel();
       if (active && module._portals_resize(cols, rows) < 0) finish(messageFromWasm());
     } catch (error) {
       finish(error.message || String(error));
@@ -9362,10 +9413,31 @@ async function start() {
   });
   resizeObserver.observe(container);
   status.dataset.state = "running";
-  status.textContent = "Running \u2014 Tab to focus, Enter to activate, F2 for themes.";
+  status.textContent = "Running \u2014 Click or tap controls. Tab / Enter also work; F2 changes theme.";
   terminal.focus();
   host.ready();
   scheduleStep();
+}
+function sendInput(text) {
+  if (!active || suspended) return;
+  try {
+    const bytes = encoder.encode(text);
+    const pointer = module._malloc(bytes.length || 1);
+    if (!pointer) {
+      finish("Cannot allocate input storage.");
+      return;
+    }
+    let result;
+    try {
+      module.HEAPU8.set(bytes, pointer);
+      result = module._portals_input(pointer, bytes.length);
+    } finally {
+      module._free(pointer);
+    }
+    if (result < 0) finish(messageFromWasm());
+  } catch (error) {
+    finish(error.message || String(error));
+  }
 }
 window.addEventListener("pagehide", () => finish(), { once: true });
 try {

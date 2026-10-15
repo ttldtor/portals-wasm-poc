@@ -1,6 +1,6 @@
 # Portals WASM gallery POC
 
-A static, keyboard-first Portals gallery for browser and Telegram Mini App experiments.
+A static Portals gallery for browser and Telegram Mini App experiments, with keyboard, mouse and tap input.
 
 **Demo:** https://ttldtor.github.io/portals-wasm-poc/
 
@@ -8,11 +8,13 @@ This is an unreleased prototype based on [Portals v0.3.0](https://github.com/ttl
 
 ## Try it
 
-Click the terminal to focus it. Type text; Enter commits, Tab changes focus, Space toggles the checkbox, F2 changes the terminal theme. Activate Quit to finish; reload to restart. Browsers may reserve function keys.
+Click or tap the checkbox and buttons directly. Click or tap the text field to focus it, then type; Enter commits. Tab changes focus, Space toggles the checkbox, and F2 changes the terminal theme. Activate Quit to finish; reload to restart. Browsers may reserve function keys.
+
+Mouse clicks use xterm.js SGR mouse reporting. A primary touch or pen tap of up to 500 ms, moving no more than 10 CSS pixels and ending in the same cell, is translated to the same cell-coordinate protocol for the existing runtime. Swipes, long presses, cancelled touches and multiple fingers do not activate controls; touch dragging, pinch gestures and long-press selection are outside this POC. Shift-click retains xterm's normal text-selection behavior. There are no touch equivalents for every terminal key.
 
 For Telegram, set the demo HTTPS URL as your bot's menu button with BotFather `/setmenubutton`. This demo uses no bot token, webhook, application server, user authentication or user-data storage. The Telegram SDK loads from its official HTTPS URL.
 
-The page handles Telegram viewport, safe-area and theme changes and pauses runtime steps while hidden or inactive. Mobile keyboard, IME and touch usability require real-device testing; there are no touch equivalents for all terminal keys. Mocked SDK tests do not establish compatibility with actual Telegram clients.
+The page handles Telegram viewport, safe-area and theme changes and pauses runtime steps and input while hidden or inactive. Mouse and touch interactions are tested with real Chromium input events at narrow and resized viewports. Mobile keyboard, IME and touch usability still require real-device testing. Mocked SDK tests do not establish compatibility with actual Telegram clients.
 
 ## Develop the page
 

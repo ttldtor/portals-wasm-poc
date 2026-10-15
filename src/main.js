@@ -6,6 +6,7 @@ import '@xterm/xterm/css/xterm.css';
 import './style.css';
 import { createTerminalBridge } from './terminal_bridge.js';
 import { createTelegramHost } from './telegram_host.js';
+import { createTouchInput } from './touch_input.js';
 
 const status = document.querySelector('#status');
 const container = document.querySelector('#terminal');
@@ -14,6 +15,7 @@ let active = false;
 let closed = false;
 let suspended = false;
 let frame = null;
+let touchInput;
 const host = createTelegramHost(setSuspended);
 document.querySelector('#environment').textContent = host.telegram ? `Telegram · ${host.platform}` : 'Browser preview';
 const terminal = new Terminal({ cursorBlink: false, scrollback: 0, fontSize: 16, screenReaderMode: true });
@@ -36,6 +38,7 @@ function scheduleStep() {
 
 function setSuspended(value) {
   suspended = value;
+  touchInput?.cancel();
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
   scheduleStep();
@@ -58,6 +61,7 @@ function finish(error) {
   resizeObserver?.disconnect();
   listeners.forEach(listener => listener.dispose());
   listeners = [];
+  terminal.write('\x1b[?1000l\x1b[?1006l');
   // Queued xterm writes own their copies and may complete after C++ teardown.
   bridge.close();
   module?._portals_shutdown();
@@ -93,26 +97,14 @@ async function start() {
   }
 
   active = true;
-  listeners.push(terminal.onData(text => {
-    if (!active) return;
-    try {
-      const bytes = encoder.encode(text);
-      const pointer = module._malloc(bytes.length || 1);
-      if (!pointer) { finish('Cannot allocate input storage.'); return; }
-      let result;
-      try {
-        module.HEAPU8.set(bytes, pointer);
-        result = module._portals_input(pointer, bytes.length);
-      } finally {
-        module._free(pointer);
-      }
-      if (result < 0) finish(messageFromWasm());
-    } catch (error) {
-      finish(error.message || String(error));
-    }
-  }));
+  listeners.push(terminal.onData(sendInput));
+  touchInput = createTouchInput(terminal, sendInput, () => active && !suspended);
+  listeners.push(touchInput);
+  // Normal mouse press/release reporting with SGR cell coordinates.
+  terminal.write('\x1b[?1000h\x1b[?1006h');
   listeners.push(terminal.onResize(({ cols, rows }) => {
     try {
+      touchInput.cancel();
       if (active && module._portals_resize(cols, rows) < 0) finish(messageFromWasm());
     } catch (error) {
       finish(error.message || String(error));
@@ -121,10 +113,29 @@ async function start() {
   resizeObserver = new ResizeObserver(() => { if (active) fit.fit(); });
   resizeObserver.observe(container);
   status.dataset.state = 'running';
-  status.textContent = 'Running — Tab to focus, Enter to activate, F2 for themes.';
+  status.textContent = 'Running — Click or tap controls. Tab / Enter also work; F2 changes theme.';
   terminal.focus();
   host.ready();
   scheduleStep();
+}
+
+function sendInput(text) {
+  if (!active || suspended) return;
+  try {
+    const bytes = encoder.encode(text);
+    const pointer = module._malloc(bytes.length || 1);
+    if (!pointer) { finish('Cannot allocate input storage.'); return; }
+    let result;
+    try {
+      module.HEAPU8.set(bytes, pointer);
+      result = module._portals_input(pointer, bytes.length);
+    } finally {
+      module._free(pointer);
+    }
+    if (result < 0) finish(messageFromWasm());
+  } catch (error) {
+    finish(error.message || String(error));
+  }
 }
 
 window.addEventListener('pagehide', () => finish(), { once: true });
