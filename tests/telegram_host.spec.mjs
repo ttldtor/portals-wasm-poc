@@ -20,7 +20,7 @@ async function mockTelegram(page) {
   ` }));
 }
 
-test('Telegram host starts, pauses, resumes, and removes callbacks on Quit', async ({ page }) => {
+test('Telegram host pauses, resumes, stays idle after Quit and removes callbacks on page hide', async ({ page }) => {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await mockTelegram(page);
@@ -39,9 +39,13 @@ test('Telegram host starts, pauses, resumes, and removes callbacks on Quit', asy
   await input.focus();
   await input.press('F10');
   await expect(page.locator('#status')).toHaveAttribute('data-state', 'finished');
-  expect(await page.evaluate(() => [...probe.events.values()].reduce((sum, callbacks) => sum + callbacks.size, 0))).toBe(0);
   await page.evaluate(() => { Telegram.WebApp.isActive = true; probe.emit('activated'); });
   await expect(page.locator('#status')).toHaveAttribute('data-state', 'finished');
+  const idleFrames = await page.evaluate(() => probe.frames);
+  await page.waitForTimeout(150);
+  expect(await page.evaluate(() => probe.frames)).toBe(idleFrames);
+  await page.evaluate(() => dispatchEvent(new PageTransitionEvent('pagehide')));
+  expect(await page.evaluate(() => [...probe.events.values()].reduce((sum, callbacks) => sum + callbacks.size, 0))).toBe(0);
   expect(errors).toEqual([]);
 });
 

@@ -1,0 +1,714 @@
+--- a/examples/wasm_gallery/main.cpp
++++ b/examples/wasm_gallery/main.cpp
+@@ -2,9 +2,11 @@
+ // SPDX-License-Identifier: BSL-1.0
+ #include "browser_terminal.hpp"
+ #include "demo_scene.hpp"
++#include "level_scene.hpp"
+ 
+ #include <emscripten.h>
+ #include <format>
++#include <limits>
+ 
+ namespace {
+ EM_JS(int, writeHost, (const char *bytes, std::size_t length), {
+@@ -16,15 +18,45 @@
+   }
+ });
+ 
++EM_JS(int, clearHost, (), {
++  try {
++    Module['portalsClear']?.();
++    return 0;
++  } catch (failure) {
++    console.error(failure);
++    return -1;
++  }
++});
++
++// Scene owners retire before their borrowed transport, settings and shared theme.
+ struct BrowserApplication {
+   example::Options options;
++  std::size_t theme{example::themeIndex(options.theme)};
++  portals::CellSize viewport;
+   std::unique_ptr<wasm_gallery::BrowserTerminal> terminal;
+-  wasm_gallery::DemoScene demo{portals::ui::opts(options)};
++  std::unique_ptr<wasm_gallery::DemoScene> gallery;
++  std::unique_ptr<wasm_gallery::LevelScene> level;
++  std::optional<int> requested;
++  int active{-1};
++  unsigned session{};
++  bool retiring{};
++
++  portals::ui::Scene *scene() noexcept {
++    return gallery ? &gallery->scene() : level ? &level->scene() : nullptr;
++  }
++
++  void retire() {
++    gallery.reset();
++    level.reset();
++    terminal.reset();
++    active = -1;
++    retiring = false;
++  }
+ };
+ 
+-// Member order keeps settings and transport alive while Scene finishes its session.
+ std::unique_ptr<BrowserApplication> application;
+ std::string lastError;
++unsigned lastSession{};
+ 
+ int fail(std::string message) {
+   lastError = std::move(message);
+@@ -36,83 +68,211 @@
+   return fail(std::format("{} failed (phase {}, cause {}).", operation, static_cast<int>(error.phase),
+                           error.cause.index()));
+ }
++
++int startScene(BrowserApplication &owner, int id) {
++  if (lastSession == std::numeric_limits<unsigned>::max()) {
++    return fail("Browser session identifiers exhausted; reload the page.");
++  }
++
++  auto terminal = wasm_gallery::BrowserTerminal::create(owner.viewport, [](std::string_view bytes) -> std::expected<std::size_t, portals::TerminalError> {
++    const auto accepted = writeHost(bytes.data(), bytes.size());
++
++    if (accepted < 0) {
++      return std::unexpected(portals::TerminalError{portals::TerminalErrorKind::OUTPUT_UNCERTAIN});
++    }
++
++    return static_cast<std::size_t>(accepted);
++  });
++
++  if (!terminal) {
++    return fail("Cannot create the browser terminal.");
++  }
++
++  owner.terminal = std::move(*terminal);
++
++  if (id == 0) {
++    owner.gallery = std::make_unique<wasm_gallery::DemoScene>(portals::ui::opts(owner.options), owner.theme);
++  } else {
++    owner.level = std::make_unique<wasm_gallery::LevelScene>(portals::ui::opts(owner.options), owner.theme);
++  }
++
++  auto started = owner.scene()->start(*owner.terminal);
++
++  if (!started) {
++    return managedFailure("Application startup", started.error());
++  }
++
++  owner.session = ++lastSession;
++  owner.active = id;
++
++  return 0;
++}
++
++bool receivesSensor(unsigned session) noexcept {
++  return application && application->active == 1 && !application->requested && !application->retiring &&
++         application->session == session;
++}
+ } // namespace
+ 
+ extern "C" {
+-/** @param columns Initial terminal width in cells.
+- * @param rows Initial terminal height in cells.
+- * @return Zero after starting, or minus one with an owning error string.
++/** @param columns Initial nonnegative terminal width in cells.
++ * @param rows Initial nonnegative terminal height in cells.
++ * @return Zero after starting Gallery, or minus one with an owning diagnostic.
+  */
+ EMSCRIPTEN_KEEPALIVE int portals_start(int columns, int rows) {
+   if (application) {
+-    return fail("The gallery is already running. Reload the page to restart.");
+-  }
+-
+-  try {
+-    auto owner = std::make_unique<BrowserApplication>();
+-    auto terminal = wasm_gallery::BrowserTerminal::create({columns, rows}, [](std::string_view bytes) -> std::expected<std::size_t, portals::TerminalError> {
+-      const auto accepted = writeHost(bytes.data(), bytes.size());
+-
+-      if (accepted < 0) {
+-        return std::unexpected(portals::TerminalError{portals::TerminalErrorKind::OUTPUT_UNCERTAIN});
+-      }
+-
+-      return static_cast<std::size_t>(accepted);
+-    });
+-
+-    if (!terminal) {
+-      return fail("Cannot create the browser terminal.");
+-    }
+-
+-    owner->terminal = std::move(*terminal);
+-    application = std::move(owner);
+-
+-    auto started = application->demo.scene().start(*application->terminal);
+-
+-    if (!started) {
+-      return managedFailure("Gallery startup", started.error());
+-    }
+-
+-    return 0;
++    return fail("The browser application has already started.");
++  }
++
++  if (columns < 0 || rows < 0) {
++    return fail("Invalid terminal viewport.");
++  }
++
++  try {
++    application = std::make_unique<BrowserApplication>();
++    application->viewport = {columns, rows};
++
++    return startScene(*application, 0);
+   } catch (const std::exception &error) {
+     return fail(error.what());
+   } catch (...) {
+-    return fail("Unknown gallery startup failure.");
+-  }
+-}
+-
+-/** @return Zero to continue, one after cleanup, or minus one after a reported failure. */
++    return fail("Unknown application startup failure.");
++  }
++}
++
++/** @param id Zero for a fresh Gallery, one for a fresh Level.
++ * @return Zero after retaining latest intent, or minus one for an invalid request.
++ * No scene is destroyed or started during this export or inside a UI callback.
++ */
++EMSCRIPTEN_KEEPALIVE int portals_select_app(int id) {
++  if (!application || (id != 0 && id != 1)) {
++    return fail("Invalid application selection.");
++  }
++
++  application->requested = id;
++
++  return 0;
++}
++
++/** @return Active app identity, or minus one while retiring, switching or idle. */
++EMSCRIPTEN_KEEPALIVE int portals_app() {
++  return application && !application->requested && !application->retiring ? application->active : -1;
++}
++
++/** @return Monotonic session token; zero before startup, unchanged while idle. */
++EMSCRIPTEN_KEEPALIVE unsigned portals_session() {
++  return application ? application->session : 0;
++}
++
++/** @return Zero to continue/switch, one while idle after Quit, or minus one after failure.
++ * Each call advances at most one bounded runtime step. Transport restoration completes
++ * before owner retirement; replacement creation happens on a subsequent host tick.
++ */
+ EMSCRIPTEN_KEEPALIVE int portals_step() {
+   if (!application) {
+-    return fail("The gallery has not started.");
+-  }
+-
+-  try {
+-    auto step = application->demo.scene().step();
++    return fail("The browser application has not started.");
++  }
++
++  try {
++    auto &owner = *application;
++    auto *scene = owner.scene();
++
++    if (!scene) {
++      if (!owner.requested) {
++        return 1;
++      }
++
++      const int next = *owner.requested;
++
++      owner.requested.reset();
++
++      if (clearHost() < 0) {
++        return fail("Cannot clear the previous application.");
++      }
++
++      return startScene(owner, next);
++    }
++
++    if (owner.requested && !owner.retiring) {
++      auto requested = scene->quit();
++
++      if (!requested) {
++        return managedFailure("Application stop request", requested.error());
++      }
++
++      owner.retiring = true;
++    }
++
++    if (owner.level && !owner.retiring) {
++      owner.level->beforeStep();
++    }
++
++    auto step = scene->step();
+ 
+     if (!step) {
+-      return managedFailure("Gallery step", step.error());
+-    }
+-
+-    return step->finished ? 1 : 0;
++      return managedFailure("Application step", step.error());
++    }
++
++    if (!step->finished) {
++      return 0;
++    }
++
++    owner.retire();
++
++    if (owner.requested) {
++      return 0;
++    }
++
++    return 1;
+   } catch (const std::exception &error) {
+     return fail(error.what());
+   } catch (...) {
+-    return fail("Unknown gallery step failure.");
+-  }
+-}
+-
+-/** @param bytes Borrowed UTF-8 bytes, copied before return.
+- * @param length Byte count, including incomplete sequences.
+- * @return Zero after admission, or minus one after a visible transport error.
++    return fail("Unknown application step failure.");
++  }
++}
++
++/** @param session Expected owning Level generation; stale or non-Level deliveries are ignored.
++ * @param beta Finite pitch in radians, normalized internally.
++ * @param gamma Finite roll in radians, normalized internally.
++ * @param angle Screen rotation in degrees: 0, 90, 180 or 270.
++ * @return Zero, including ignored malformed/stale deliveries; no borrowed values survive.
++ */
++EMSCRIPTEN_KEEPALIVE int portals_orientation(unsigned session, double beta, double gamma, int angle) {
++  if (receivesSensor(session) && std::isfinite(beta) && std::isfinite(gamma) &&
++      (angle == 0 || angle == 90 || angle == 180 || angle == 270)) {
++    application->level->orientation(beta, gamma, angle);
++  }
++
++  return 0;
++}
++
++/** @param session Expected owning Level generation; stale/non-Level deliveries are ignored.
++ * @param state Zero unavailable, one waiting, two paused; invalid values are ignored.
++ * @return Zero; owning status is applied at the next runtime step.
++ */
++EMSCRIPTEN_KEEPALIVE int portals_sensor_state(unsigned session, int state) {
++  if (receivesSensor(session) && state >= 0 && state <= 2) {
++    application->level->sensorState(state);
++  }
++
++  return 0;
++}
++
++/** @param bytes Borrowed UTF-8 fragment, copied before return.
++ * @param length Byte count; null is accepted only for an empty fragment.
++ * @return Zero after admission or deliberate idle/transition discard; minus one on transport failure.
+  */
+ EMSCRIPTEN_KEEPALIVE int portals_input(const char *bytes, std::size_t length) {
+-  if (!application) {
+-    return fail("The gallery is closed.");
+-  }
+-
+-  try {
+-    auto pushed = application->terminal->pushInput({bytes, length});
++  if (!application || (!bytes && length != 0)) {
++    return fail("Invalid terminal input.");
++  }
++
++  if (!application->scene() || application->requested || application->retiring) {
++    return 0;
++  }
++
++  try {
++    auto pushed = application->terminal->pushInput(length ? std::string_view(bytes, length) : std::string_view{});
+ 
+     return pushed ? 0 : fail("Terminal input failed or exceeded its queue limit.");
+   } catch (...) {
+@@ -120,16 +280,22 @@
+   }
+ }
+ 
+-/** @param columns New nonnegative terminal width in cells.
+- * @param rows New nonnegative terminal height in cells.
+- * @return Zero after admission, or minus one after a viewport error.
++/** @param columns Latest nonnegative terminal width in cells, retained across idle/switching.
++ * @param rows Latest nonnegative terminal height in cells.
++ * @return Zero after admission, or minus one on invalid dimensions/transport failure.
+  */
+ EMSCRIPTEN_KEEPALIVE int portals_resize(int columns, int rows) {
+-  if (!application) {
+-    return fail("The gallery is closed.");
+-  }
+-
+-  auto resized = application->terminal->resize({columns, rows});
++  if (!application || columns < 0 || rows < 0) {
++    return fail("Invalid terminal viewport.");
++  }
++
++  application->viewport = {columns, rows};
++
++  if (!application->scene() || application->retiring || application->requested) {
++    return 0;
++  }
++
++  auto resized = application->terminal->resize(application->viewport);
+ 
+   return resized ? 0 : fail("Terminal resize failed.");
+ }
+@@ -139,7 +305,9 @@
+   return lastError.c_str();
+ }
+ 
+-/** @brief Release the scene before its transport and options, after leaving the current step. */
++/** @brief Cancel active startup/animation/switch, then destroy scene before transport/options.
++ * UI thread only, outside all exports and host callbacks; repeated calls are harmless.
++ */
+ EMSCRIPTEN_KEEPALIVE void portals_shutdown() {
+   application.reset();
+ }
+--- a/examples/wasm_gallery/demo_scene.hpp
++++ b/examples/wasm_gallery/demo_scene.hpp
+@@ -4,15 +4,18 @@
+ #include "../gallery/common.hpp"
+ #include "../gallery/settings.hpp"
+ #include "../gallery/themes.hpp"
++#include "sample_theme.hpp"
+ #include <portals/ui_style.hpp>
+ 
+ namespace wasm_gallery {
+ /** @brief Stationary browser demo; its owning scene cancels timers before borrowed state retires. */
+ class DemoScene {
+ public:
+-  /** @param options Borrowed display settings, retained until this demo is destroyed. */
+-  explicit DemoScene(portals::ui::OptionsRef<example::Options> options)
+-      : options_(options), scene_(portals::ui::scene([this](portals::ManagedScene &, portals::Application &) {
++  /** @param options Borrowed display settings, retained until this demo is destroyed.
++   * @param theme Shared preset index, retained until this demo is destroyed.
++   */
++  explicit DemoScene(portals::ui::OptionsRef<example::Options> options, std::size_t &theme)
++      : options_(options), theme_(theme), scene_(portals::ui::scene([this](portals::ManagedScene &, portals::Application &) {
+           return recipe();
+         })) {
+     using namespace portals;
+@@ -29,7 +32,7 @@
+       owner_ = &owner;
+       app_ = &app;
+       scope_ = example::take(app.scheduler().makeScope());
+-      applyTheme(example::themeIndex(options_.get().theme));
++      applyTheme(theme_);
+       configureGrid();
+       example::take(app.router().setFocus(editor_.node()));
+     });
+@@ -97,25 +100,7 @@
+   }
+ 
+   void applyTheme(std::size_t index) {
+-    using namespace portals;
+-
+-    auto sheet = example::THEME_PRESETS[index].make();
+-    StyleTarget table;
+-    StyleRule titleRule;
+-
+-    table.type = "Table";
+-
+-    const auto header = resolveStyle(sheet, table).header;
+-
+-    // This Grid's Label paints NORMAL; adapt the theme's table HEADER role to that cell.
+-    titleRule.selector.id = "gallery-title";
+-    titleRule.declarations.foreground = header.foreground;
+-    titleRule.declarations.background = header.background;
+-    titleRule.declarations.bold = header.bold;
+-    titleRule.declarations.italic = header.italic;
+-    titleRule.declarations.underline = header.underline;
+-    sheet.rules.push_back(std::move(titleRule));
+-    example::take(owner_->theme(sheet));
++    example::take(owner_->theme(sampleTheme(index, "gallery-title")));
+     theme_ = index;
+   }
+ 
+@@ -181,7 +166,8 @@
+   portals::Application *app_{};
+   portals::UiScope scope_;
+   portals::Subscription timer_;
+-  std::size_t theme_{}, index_{};
++  std::size_t &theme_;
++  std::size_t index_{};
+   bool running_{}, returning_{};
+   portals::ui::Scene scene_;
+ };
+--- /dev/null
++++ b/examples/wasm_gallery/sample_theme.hpp
+@@ -0,0 +1,33 @@
++// Copyright (c) 2026 ttldtor.
++// SPDX-License-Identifier: BSL-1.0
++#pragma once
++#include "../gallery/common.hpp"
++#include "../gallery/themes.hpp"
++
++namespace wasm_gallery {
++/** @param index Shared preset index, owned by the browser application.
++ * @param titleId Identity of this scene's title label.
++ * @return Owning preset with the table HEADER role adapted to a normal label.
++ */
++inline portals::StyleSheet sampleTheme(std::size_t index, std::string_view titleId) {
++  using namespace portals;
++
++  auto sheet = example::THEME_PRESETS[index].make();
++  StyleTarget table;
++  StyleRule title;
++
++  table.type = "Table";
++
++  const auto header = resolveStyle(sheet, table).header;
++
++  title.selector.id = titleId;
++  title.declarations.foreground = header.foreground;
++  title.declarations.background = header.background;
++  title.declarations.bold = header.bold;
++  title.declarations.italic = header.italic;
++  title.declarations.underline = header.underline;
++  sheet.rules.push_back(std::move(title));
++
++  return sheet;
++}
++} // namespace wasm_gallery
+--- /dev/null
++++ b/examples/wasm_gallery/level_scene.hpp
+@@ -0,0 +1,230 @@
++// Copyright (c) 2026 ttldtor.
++// SPDX-License-Identifier: BSL-1.0
++#pragma once
++#include "../gallery/settings.hpp"
++#include "sample_theme.hpp"
++#include <array>
++#include <cmath>
++#include <format>
++#include <numbers>
++
++namespace wasm_gallery {
++/** @brief Stationary, UI-thread-only level with owning sensor values and no sensor callbacks. */
++class LevelScene {
++public:
++  /** @param options Borrowed settings, alive through scene destruction.
++   * @param theme Borrowed shared preset index, alive through scene destruction.
++   */
++  LevelScene(portals::ui::OptionsRef<example::Options> options, std::size_t &theme)
++      : theme_(theme), scene_(portals::ui::scene([this](portals::ManagedScene &, portals::Application &) {
++          return recipe();
++        })) {
++    using namespace portals;
++
++    scene_.applicationOptions([options] {
++      ApplicationOptions result;
++
++      result.writer.colorMode = options.get().ansi16 ? ColorMode::ANSI16 : ColorMode::TRUE_COLOR;
++
++      return result;
++    });
++    scene_.style(ui::style("Button:focused { bold: true; } .level-green { foreground: #51c878; } .level-yellow { foreground: #e5bf55; } .level-red { foreground: #ef7777; }"));
++    scene_.configure([this](ManagedScene &owner, Application &app) {
++      owner_ = &owner;
++      app_ = &app;
++      applyTheme();
++
++      const AxisSize fixed{.preferred = 1, .mode = SizeMode::FIXED};
++      GridOptions grid;
++
++      grid.columns = {AxisSize{.mode = SizeMode::FLEX}};
++      grid.rows = {fixed, AxisSize{.mode = SizeMode::FLEX}};
++      grid.cells = {{title_.node().id(), 0, 0}, {body_.node().id(), 1, 0}};
++      example::take(setGridOptions(app.tree(), grid_.node(), grid));
++      example::take(app.tree().setEnabled(zero_.node(), false));
++      example::take(app.router().setFocus(themeButton_.node()));
++      paint();
++    });
++    scene_.onKey("F2", [this] { changeTheme(); });
++    scene_.onKey("F10 | Ctrl+C", ui::quit);
++  }
++
++  LevelScene(const LevelScene &) = delete;
++  LevelScene &operator=(const LevelScene &) = delete;
++  LevelScene(LevelScene &&) = delete;
++  LevelScene &operator=(LevelScene &&) = delete;
++
++  /** @return Borrowed facade; this stationary sample owns all its captures. */
++  portals::ui::Scene &scene() noexcept {
++    return scene_;
++  }
++
++  /** @param beta Owning finite device pitch, in radians.
++   * @param gamma Owning finite device roll, in radians.
++   * @param angle Validated screen orientation: 0, 90, 180 or 270 degrees.
++   * Values are retained only; widget work occurs at the next step boundary.
++   */
++  void orientation(double beta, double gamma, int angle) noexcept {
++    beta_ = std::remainder(beta, TWO_PI);
++    gamma_ = std::remainder(gamma, TWO_PI);
++    angle_ = angle;
++    state_ = READY;
++    valid_ = true;
++    samplePending_ = true;
++    dirty_ = true;
++  }
++
++  /** @param state Validated state: 0 unavailable, 1 waiting, 2 paused. */
++  void sensorState(int state) noexcept {
++    state_ = state;
++    dirty_ = true;
++  }
++
++  /** @brief Apply retained values between scene operations; no host callbacks or waits. */
++  void beforeStep() {
++    if (samplePending_) {
++      samplePending_ = false;
++      updateAngles();
++    }
++
++    if (dirty_ && app_) {
++      paint();
++      dirty_ = false;
++    }
++  }
++
++private:
++  static constexpr int READY = 3;
++  static constexpr int INTERIOR_COLUMNS = 23;
++  static constexpr int INTERIOR_ROWS = 7;
++  static constexpr int CENTER_COLUMN = INTERIOR_COLUMNS / 2;
++  static constexpr int CENTER_ROW = INTERIOR_ROWS / 2;
++  static constexpr double TWO_PI = 2.0 * std::numbers::pi;
++  static constexpr double DEGREES_PER_RADIAN = 180.0 / std::numbers::pi;
++  static constexpr double FILTER_WEIGHT = 0.25;
++  static constexpr double DEADZONE_DEGREES = 0.7;
++  static constexpr double FULL_SCALE_DEGREES = 30.0;
++  static constexpr double WARNING_DEGREES = 10.0;
++
++  portals::ui::Description<portals::Grid> recipe() {
++    using namespace portals;
++
++    auto body = ui::vbox(body_, ui::label("========================="),
++                         ui::button(themeButton_, "Theme |   F2 ", [this] { changeTheme(); }),
++                         ui::button("Quit  |   F10", [] { ui::quit(); }), ui::label(""),
++                         ui::label(angles_, "X: --       Y: --"), ui::label(""),
++                         ui::label("┌───────────────────────┐"),
++                         ui::label(rows_[0], ""), ui::label(rows_[1], ""), ui::label(rows_[2], ""),
++                         ui::label(rows_[3], ""), ui::label(rows_[4], ""), ui::label(rows_[5], ""),
++                         ui::label(rows_[6], ""), ui::label("└───────────────────────┘"), ui::label(""),
++                         ui::button(zero_, "Zero", [this] { zero(); }), ui::label(status_, "Waiting for sensor"));
++
++    return ui::grid(grid_, ui::label(title_, " Phone level").id("level-title"), std::move(body));
++  }
++
++  void applyTheme() {
++    example::take(owner_->theme(sampleTheme(theme_, "level-title")));
++  }
++
++  void changeTheme() {
++    theme_ = (theme_ + 1) % example::THEME_PRESETS.size();
++    applyTheme();
++  }
++
++  void updateAngles() noexcept {
++    const double deviceX = std::remainder(gamma_ - zeroGamma_, TWO_PI) * DEGREES_PER_RADIAN;
++    const double deviceY = std::remainder(beta_ - zeroBeta_, TWO_PI) * DEGREES_PER_RADIAN;
++    double x = deviceX;
++    double y = deviceY;
++
++    // Rotate device-relative axes into the current screen coordinate system.
++    if (angle_ == 90) {
++      x = deviceY;
++      y = -deviceX;
++    } else if (angle_ == 180) {
++      x = -deviceX;
++      y = -deviceY;
++    } else if (angle_ == 270) {
++      x = -deviceY;
++      y = deviceX;
++    }
++
++    if (!filtered_ || filteredAngle_ != angle_) {
++      x_ = x;
++      y_ = y;
++      filtered_ = true;
++    } else {
++      x_ += FILTER_WEIGHT * (x - x_);
++      y_ += FILTER_WEIGHT * (y - y_);
++    }
++
++    filteredAngle_ = angle_;
++  }
++
++  void zero() {
++    if (!valid_ || state_ != READY) {
++      return;
++    }
++
++    zeroBeta_ = beta_;
++    zeroGamma_ = gamma_;
++    x_ = 0;
++    y_ = 0;
++    paint();
++  }
++
++  void setText(portals::ui::Ref<portals::Label> &label, std::string_view value) {
++    example::take(portals::setControlText(app_->tree(), label.node(), example::text(value, app_->widthPolicy())));
++  }
++
++  void paint() {
++    const bool ready = valid_ && state_ == READY;
++    const double x = std::abs(x_) < DEADZONE_DEGREES ? 0.0 : x_;
++    const double y = std::abs(y_) < DEADZONE_DEGREES ? 0.0 : y_;
++    const int bubbleX = CENTER_COLUMN + static_cast<int>(std::lround(std::clamp(x / FULL_SCALE_DEGREES, -1.0, 1.0) * CENTER_COLUMN));
++    const int bubbleY = CENTER_ROW + static_cast<int>(std::lround(std::clamp(y / FULL_SCALE_DEGREES, -1.0, 1.0) * CENTER_ROW));
++    const double tilt = std::max(std::abs(x), std::abs(y));
++    const std::string severity = tilt == 0 ? "level-green" : tilt < WARNING_DEGREES ? "level-yellow" : "level-red";
++
++    setText(angles_, ready ? std::format("X: {:+5.1f}°  Y: {:+5.1f}°", x, y) : "X: --       Y: --");
++    setText(status_, state_ == 0 ? "Sensor unavailable" : state_ == 2 ? "Paused" : ready ? "Zero sets current pose" : "Waiting for sensor");
++    example::take(app_->tree().setEnabled(zero_.node(), ready));
++
++    for (int row = 0; row < INTERIOR_ROWS; ++row) {
++      std::string line = "│";
++
++      for (int column = 0; column < INTERIOR_COLUMNS; ++column) {
++        line += ready && row == bubbleY && column == bubbleX ? "●"
++                : row == CENTER_ROW && column == CENTER_COLUMN ? "┼"
++                : row == CENTER_ROW ? "─" : column == CENTER_COLUMN ? "│" : " ";
++      }
++
++      line += "│";
++      setText(rows_[row], line);
++
++      portals::StyleTarget target;
++
++      target.type = "Label";
++
++      if (ready && row == bubbleY) {
++        target.classes.push_back(severity);
++      }
++
++      example::take(owner_->style(rows_[row].node(), std::move(target)));
++    }
++  }
++
++  std::size_t &theme_;
++  portals::ui::Ref<portals::Grid> grid_;
++  portals::ui::Ref<portals::Column> body_;
++  portals::ui::Ref<portals::Label> title_, angles_, status_;
++  std::array<portals::ui::Ref<portals::Label>, INTERIOR_ROWS> rows_;
++  portals::ui::Ref<portals::Button> themeButton_, zero_;
++  portals::ManagedScene *owner_{};
++  portals::Application *app_{};
++  double beta_{}, gamma_{}, zeroBeta_{}, zeroGamma_{}, x_{}, y_{};
++  int state_{1}, angle_{}, filteredAngle_{};
++  bool valid_{}, filtered_{}, samplePending_{}, dirty_{};
++  portals::ui::Scene scene_;
++};
++} // namespace wasm_gallery

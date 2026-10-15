@@ -259,6 +259,32 @@ header p,
 #environment {
   font-size: .85rem;
 }
+nav {
+  display: flex;
+  gap: .5rem;
+}
+nav button {
+  min-height: 44px;
+  min-width: 100px;
+  padding: .5rem 1rem;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--poc-border, #35435b);
+  border-radius: .4rem;
+  cursor: pointer;
+}
+nav button[aria-pressed=true] {
+  background: var(--poc-border, #35435b);
+}
+nav button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+nav button:disabled {
+  cursor: default;
+  opacity: .5;
+}
 main {
   flex: 1;
   min-height: 90px;

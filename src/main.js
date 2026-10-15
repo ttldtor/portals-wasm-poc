@@ -7,11 +7,14 @@ import './style.css';
 import { createTerminalBridge } from './terminal_bridge.js';
 import { createTelegramHost } from './telegram_host.js';
 import { createTouchInput } from './touch_input.js';
+import { createOrientationInput } from './orientation_input.js';
 
 const DEFAULT_FONT_SIZE = 18;
 const MIN_FONT_SIZE = 10;
-const GALLERY_COLUMNS = 22;
-const GALLERY_ROWS = 11;
+const APPS = [
+  { name: 'Gallery', title: 'Portals gallery', columns: 22, rows: 11 },
+  { name: 'Level', title: 'Phone level', columns: 25, rows: 19 }
+];
 const RUNTIME_VERSION = __PORTALS_RUNTIME_VERSION__;
 const status = document.querySelector('#status');
 const container = document.querySelector('#terminal');
@@ -21,6 +24,12 @@ let closed = false;
 let suspended = false;
 let frame = null;
 let touchInput;
+let orientation;
+let selectedApp = 0;
+let currentApp = -1;
+let session = 0;
+let switching = false;
+const appButtons = [...document.querySelectorAll('[data-app]')];
 const host = createTelegramHost(setSuspended);
 document.querySelector('#environment').textContent = host.telegram ? `Telegram · ${host.platform}` : 'Browser preview';
 const terminal = new Terminal({ cursorBlink: false, scrollback: 0, fontSize: DEFAULT_FONT_SIZE, screenReaderMode: true });
@@ -42,6 +51,13 @@ resizeTerminal();
 const bridge = createTerminalBridge(terminal);
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+orientation = createOrientationInput({
+  onSample: sample => sensorCall(sample.session, () =>
+    module._portals_orientation(sample.session, sample.beta, sample.gamma, sample.angle)),
+  onState: update => sensorCall(update.session, () =>
+    module._portals_sensor_state(update.session, { unavailable: 0, waiting: 1, paused: 2 }[update.state]))
+});
+orientation.pause(suspended);
 let listeners = [];
 let resizeObserver;
 
@@ -51,6 +67,7 @@ function scheduleStep() {
 
 function setSuspended(value) {
   suspended = value;
+  orientation?.pause(value);
   touchInput?.cancel();
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
@@ -70,6 +87,8 @@ function finish(error) {
   active = false;
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
+  orientation?.dispose();
+  appButtons.forEach(button => { button.disabled = true; });
   host.dispose();
   resizeObserver?.disconnect();
   listeners.forEach(listener => listener.dispose());
@@ -87,8 +106,20 @@ function step() {
   if (!active || suspended) return;
   try {
     const result = module._portals_step();
-    if (result !== 0) {
-      finish(result < 0 ? messageFromWasm() : undefined);
+    if (result < 0) {
+      finish(messageFromWasm());
+      return;
+    }
+    syncScene();
+    if (result === 1) {
+      active = false;
+      switching = false;
+      session = 0;
+      currentApp = -1;
+      orientation.deactivate();
+      touchInput?.cancel();
+      status.dataset.state = 'finished';
+      status.textContent = 'Finished. Choose Gallery or Level to start.';
       return;
     }
     scheduleStep();
@@ -97,11 +128,54 @@ function step() {
   }
 }
 
+function sensorCall(tag, callback) {
+  if (closed || !active || switching || currentApp !== 1 || tag !== session) return;
+  try {
+    if (callback() < 0) finish(messageFromWasm());
+  } catch (error) { finish(error.message || String(error)); }
+}
+
+function syncScene() {
+  const app = module._portals_app();
+  const nextSession = module._portals_session();
+  if (app < 0 || nextSession === session) return;
+  currentApp = app;
+  session = nextSession;
+  switching = false;
+  terminal.textarea.readOnly = app === 1;
+  terminal.textarea.inputMode = app === 1 ? 'none' : 'text';
+  document.querySelector('h1').textContent = APPS[app].title;
+  container.setAttribute('aria-label', `Portals terminal ${APPS[app].name.toLowerCase()}`);
+  status.dataset.state = 'running';
+  status.textContent = 'Tab / Shift+Tab: focus · Enter: activate · F2: theme · F10: quit.';
+  if (app === 1) orientation.activate(session);
+  else { orientation.deactivate(); terminal.focus(); }
+}
+
+function selectApp(app) {
+  if (closed || !module || (active && !switching && currentApp === app)) return;
+  try {
+    orientation.deactivate();
+    touchInput?.cancel();
+    switching = true;
+    session = 0;
+    selectedApp = app;
+    if (app === 1) terminal.blur();
+    appButtons.forEach((button, index) => button.setAttribute('aria-pressed', String(index === app)));
+    if (module._portals_select_app(app) < 0) { finish(messageFromWasm()); return; }
+    active = true;
+    resizeTerminal();
+    scheduleStep();
+  } catch (error) { finish(error.message || String(error)); }
+}
+
 async function start() {
   const { default: createGallery } = await import(runtimeUrl('./portals-gallery.js'));
   if (closed) return;
   module = await createGallery({ noInitialRun: true, locateFile: runtimeUrl,
-    portalsWrite: bytes => bridge.write(bytes) });
+    portalsWrite: bytes => bridge.write(bytes),
+    // Clear only after C++ has retired the old scene; never reenter WASM here.
+    portalsClear: () => terminal.write('\x1b[2J\x1b[H') });
   if (closed) {
     module._portals_shutdown();
     return;
@@ -111,23 +185,28 @@ async function start() {
   }
 
   active = true;
+  syncScene();
+  appButtons.forEach((button, app) => {
+    button.disabled = false;
+    const click = () => selectApp(app);
+    button.addEventListener('click', click);
+    listeners.push({ dispose: () => button.removeEventListener('click', click) });
+  });
   listeners.push(terminal.onData(sendInput));
-  touchInput = createTouchInput(terminal, sendInput, () => active && !suspended);
+  touchInput = createTouchInput(terminal, sendInput, () => active && !suspended && !switching);
   listeners.push(touchInput);
   // Normal mouse press/release reporting with SGR cell coordinates.
   terminal.write('\x1b[?1000h\x1b[?1006h');
   listeners.push(terminal.onResize(({ cols, rows }) => {
     try {
       touchInput.cancel();
-      if (active && module._portals_resize(cols, rows) < 0) finish(messageFromWasm());
+      if (!closed && module._portals_resize(cols, rows) < 0) finish(messageFromWasm());
     } catch (error) {
       finish(error.message || String(error));
     }
   }));
-  resizeObserver = new ResizeObserver(() => { if (active) resizeTerminal(); });
+  resizeObserver = new ResizeObserver(() => { if (!closed) resizeTerminal(); });
   resizeObserver.observe(container);
-  status.dataset.state = 'running';
-  status.textContent = 'Click or tap controls. Tab / Shift+Tab move focus; Enter activates. F2: theme · F10: quit. Run animates once.';
   terminal.focus();
   host.ready();
   scheduleStep();
@@ -143,13 +222,14 @@ function resizeTerminal() {
   terminal.options.fontSize = DEFAULT_FONT_SIZE;
   const available = fit.proposeDimensions();
   if (!available) return;
-  const scale = Math.min(1, available.cols / GALLERY_COLUMNS, available.rows / GALLERY_ROWS);
+  const app = APPS[selectedApp];
+  const scale = Math.min(1, available.cols / app.columns, available.rows / app.rows);
   terminal.options.fontSize = Math.max(MIN_FONT_SIZE, Math.floor(DEFAULT_FONT_SIZE * scale));
   fit.fit();
 }
 
 function sendInput(text) {
-  if (!active || suspended) return;
+  if (!active || suspended || switching) return;
   try {
     const bytes = encoder.encode(text);
     const pointer = module._malloc(bytes.length || 1);

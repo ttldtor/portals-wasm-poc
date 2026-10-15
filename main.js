@@ -9332,12 +9332,178 @@ function createTouchInput(terminal2, sendInput2, isActive) {
   } };
 }
 
+// src/orientation_input.js
+function createOrientationInput({ window: window2 = globalThis.window, onSample, onState }) {
+  let selected = null;
+  let paused = false;
+  let disposed = false;
+  let lease = null;
+  let pending = null;
+  let settling = false;
+  let failed = false;
+  function supported() {
+    const app = window2?.Telegram?.WebApp;
+    try {
+      return app?.platform && app.platform !== "unknown" && app.isVersionAtLeast?.("8.0") && typeof app.onEvent === "function" && typeof app.offEvent === "function" && typeof app.DeviceOrientation?.start === "function" && typeof app.DeviceOrientation.stop === "function" ? app : null;
+    } catch {
+      return null;
+    }
+  }
+  function current(owner) {
+    return !disposed && !paused && lease === owner && selected === owner.session;
+  }
+  function notify(session2, state) {
+    if (disposed || selected !== session2) return;
+    try {
+      onState({ session: session2, state });
+    } catch {
+      failed = true;
+      release();
+    }
+  }
+  function stop(sensor) {
+    try {
+      sensor.stop();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  function release() {
+    const owner = lease;
+    lease = null;
+    if (!owner) return true;
+    for (const [name, handler] of owner.listeners) {
+      try {
+        owner.app.offEvent(name, handler);
+      } catch {
+      }
+    }
+    return stop(owner.sensor);
+  }
+  function unavailable(owner) {
+    if (!current(owner)) return;
+    failed = true;
+    release();
+    notify(owner.session, "unavailable");
+  }
+  function angle() {
+    const value = window2?.screen?.orientation?.angle ?? window2?.orientation ?? 0;
+    if (!Number.isFinite(value)) return 0;
+    const normalized = (value % 360 + 360) % 360;
+    return [0, 90, 180, 270].includes(normalized) ? normalized : 0;
+  }
+  function start2() {
+    if (disposed || paused || selected === null || failed || lease || pending || settling) return;
+    const app = supported();
+    if (!app) {
+      failed = true;
+      notify(selected, "unavailable");
+      return;
+    }
+    const owner = { session: selected, app, sensor: app.DeviceOrientation, listeners: [], started: false };
+    lease = owner;
+    const handlers = {
+      deviceOrientationStarted() {
+        owner.started = true;
+      },
+      deviceOrientationStopped() {
+        unavailable(owner);
+      },
+      deviceOrientationFailed() {
+        unavailable(owner);
+      },
+      deviceOrientationChanged() {
+        if (!owner.started) return;
+        const { beta, gamma } = owner.sensor;
+        if (!Number.isFinite(beta) || !Number.isFinite(gamma)) return;
+        try {
+          onSample({ session: owner.session, beta, gamma, angle: angle() });
+        } catch {
+          unavailable(owner);
+        }
+      }
+    };
+    try {
+      for (const [name, handler] of Object.entries(handlers)) {
+        const guarded = () => {
+          if (current(owner)) handler();
+        };
+        owner.listeners.push([name, guarded]);
+        app.onEvent(name, guarded);
+        if (!current(owner)) return;
+      }
+      const request = { owner };
+      pending = request;
+      owner.sensor.start({ refresh_rate: 50, need_absolute: false }, (success) => {
+        if (pending !== request) return;
+        pending = null;
+        settling = true;
+        if (current(owner)) {
+          if (success) owner.started = true;
+          else unavailable(owner);
+        } else if (success) stop(owner.sensor);
+        queueMicrotask(() => {
+          settling = false;
+          start2();
+        });
+      });
+    } catch {
+      if (pending?.owner === owner) pending = null;
+      unavailable(owner);
+    }
+  }
+  return {
+    activate(session2) {
+      if (disposed) return;
+      if (selected === session2 && lease) return;
+      selected = session2;
+      failed = false;
+      const stopped = release();
+      if (!stopped) {
+        failed = true;
+        notify(session2, "unavailable");
+        return;
+      }
+      failed = !supported();
+      notify(session2, paused ? "paused" : failed ? "unavailable" : "waiting");
+      start2();
+    },
+    pause(value) {
+      if (disposed || paused === Boolean(value)) return;
+      paused = Boolean(value);
+      failed = false;
+      if (paused) {
+        const stopped = release();
+        if (selected !== null) notify(selected, stopped ? "paused" : "unavailable");
+      } else if (selected !== null) {
+        failed = !supported();
+        notify(selected, failed ? "unavailable" : "waiting");
+        start2();
+      }
+    },
+    deactivate() {
+      selected = null;
+      failed = false;
+      release();
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      selected = null;
+      release();
+    }
+  };
+}
+
 // src/main.js
 var DEFAULT_FONT_SIZE = 18;
 var MIN_FONT_SIZE = 10;
-var GALLERY_COLUMNS = 22;
-var GALLERY_ROWS = 11;
-var RUNTIME_VERSION = "689dbfe9f6d68123c7f5ea692cd6f8e68739f415660e4de6a0f3407049a4710f";
+var APPS = [
+  { name: "Gallery", title: "Portals gallery", columns: 22, rows: 11 },
+  { name: "Level", title: "Phone level", columns: 25, rows: 19 }
+];
+var RUNTIME_VERSION = "f56af09a0c0cf07a58f5232fd4a2084ef89a369255e98170a5fd0acc2c62c176";
 var status = document.querySelector("#status");
 var container = document.querySelector("#terminal");
 var module;
@@ -9346,6 +9512,12 @@ var closed = false;
 var suspended = false;
 var frame = null;
 var touchInput;
+var orientation;
+var selectedApp = 0;
+var currentApp = -1;
+var session = 0;
+var switching = false;
+var appButtons = [...document.querySelectorAll("[data-app]")];
 var host = createTelegramHost(setSuspended);
 document.querySelector("#environment").textContent = host.telegram ? `Telegram \xB7 ${host.platform}` : "Browser preview";
 var terminal = new Dl({ cursorBlink: false, scrollback: 0, fontSize: DEFAULT_FONT_SIZE, screenReaderMode: true });
@@ -9361,6 +9533,11 @@ resizeTerminal();
 var bridge = createTerminalBridge(terminal);
 var encoder = new TextEncoder();
 var decoder = new TextDecoder();
+orientation = createOrientationInput({
+  onSample: (sample) => sensorCall(sample.session, () => module._portals_orientation(sample.session, sample.beta, sample.gamma, sample.angle)),
+  onState: (update) => sensorCall(update.session, () => module._portals_sensor_state(update.session, { unavailable: 0, waiting: 1, paused: 2 }[update.state]))
+});
+orientation.pause(suspended);
 var listeners = [];
 var resizeObserver;
 function scheduleStep() {
@@ -9368,6 +9545,7 @@ function scheduleStep() {
 }
 function setSuspended(value) {
   suspended = value;
+  orientation?.pause(value);
   touchInput?.cancel();
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
@@ -9385,6 +9563,10 @@ function finish(error) {
   active = false;
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
+  orientation?.dispose();
+  appButtons.forEach((button) => {
+    button.disabled = true;
+  });
   host.dispose();
   resizeObserver?.disconnect();
   listeners.forEach((listener) => listener.dispose());
@@ -9400,10 +9582,70 @@ function step() {
   if (!active || suspended) return;
   try {
     const result = module._portals_step();
-    if (result !== 0) {
-      finish(result < 0 ? messageFromWasm() : void 0);
+    if (result < 0) {
+      finish(messageFromWasm());
       return;
     }
+    syncScene();
+    if (result === 1) {
+      active = false;
+      switching = false;
+      session = 0;
+      currentApp = -1;
+      orientation.deactivate();
+      touchInput?.cancel();
+      status.dataset.state = "finished";
+      status.textContent = "Finished. Choose Gallery or Level to start.";
+      return;
+    }
+    scheduleStep();
+  } catch (error) {
+    finish(error.message || String(error));
+  }
+}
+function sensorCall(tag, callback) {
+  if (closed || !active || switching || currentApp !== 1 || tag !== session) return;
+  try {
+    if (callback() < 0) finish(messageFromWasm());
+  } catch (error) {
+    finish(error.message || String(error));
+  }
+}
+function syncScene() {
+  const app = module._portals_app();
+  const nextSession = module._portals_session();
+  if (app < 0 || nextSession === session) return;
+  currentApp = app;
+  session = nextSession;
+  switching = false;
+  terminal.textarea.readOnly = app === 1;
+  terminal.textarea.inputMode = app === 1 ? "none" : "text";
+  document.querySelector("h1").textContent = APPS[app].title;
+  container.setAttribute("aria-label", `Portals terminal ${APPS[app].name.toLowerCase()}`);
+  status.dataset.state = "running";
+  status.textContent = "Tab / Shift+Tab: focus \xB7 Enter: activate \xB7 F2: theme \xB7 F10: quit.";
+  if (app === 1) orientation.activate(session);
+  else {
+    orientation.deactivate();
+    terminal.focus();
+  }
+}
+function selectApp(app) {
+  if (closed || !module || active && !switching && currentApp === app) return;
+  try {
+    orientation.deactivate();
+    touchInput?.cancel();
+    switching = true;
+    session = 0;
+    selectedApp = app;
+    if (app === 1) terminal.blur();
+    appButtons.forEach((button, index) => button.setAttribute("aria-pressed", String(index === app)));
+    if (module._portals_select_app(app) < 0) {
+      finish(messageFromWasm());
+      return;
+    }
+    active = true;
+    resizeTerminal();
     scheduleStep();
   } catch (error) {
     finish(error.message || String(error));
@@ -9415,7 +9657,9 @@ async function start() {
   module = await createGallery({
     noInitialRun: true,
     locateFile: runtimeUrl,
-    portalsWrite: (bytes) => bridge.write(bytes)
+    portalsWrite: (bytes) => bridge.write(bytes),
+    // Clear only after C++ has retired the old scene; never reenter WASM here.
+    portalsClear: () => terminal.write("\x1B[2J\x1B[H")
   });
   if (closed) {
     module._portals_shutdown();
@@ -9425,24 +9669,29 @@ async function start() {
     throw new Error(messageFromWasm());
   }
   active = true;
+  syncScene();
+  appButtons.forEach((button, app) => {
+    button.disabled = false;
+    const click = () => selectApp(app);
+    button.addEventListener("click", click);
+    listeners.push({ dispose: () => button.removeEventListener("click", click) });
+  });
   listeners.push(terminal.onData(sendInput));
-  touchInput = createTouchInput(terminal, sendInput, () => active && !suspended);
+  touchInput = createTouchInput(terminal, sendInput, () => active && !suspended && !switching);
   listeners.push(touchInput);
   terminal.write("\x1B[?1000h\x1B[?1006h");
   listeners.push(terminal.onResize(({ cols, rows }) => {
     try {
       touchInput.cancel();
-      if (active && module._portals_resize(cols, rows) < 0) finish(messageFromWasm());
+      if (!closed && module._portals_resize(cols, rows) < 0) finish(messageFromWasm());
     } catch (error) {
       finish(error.message || String(error));
     }
   }));
   resizeObserver = new ResizeObserver(() => {
-    if (active) resizeTerminal();
+    if (!closed) resizeTerminal();
   });
   resizeObserver.observe(container);
-  status.dataset.state = "running";
-  status.textContent = "Click or tap controls. Tab / Shift+Tab move focus; Enter activates. F2: theme \xB7 F10: quit. Run animates once.";
   terminal.focus();
   host.ready();
   scheduleStep();
@@ -9456,12 +9705,13 @@ function resizeTerminal() {
   terminal.options.fontSize = DEFAULT_FONT_SIZE;
   const available = fit.proposeDimensions();
   if (!available) return;
-  const scale = Math.min(1, available.cols / GALLERY_COLUMNS, available.rows / GALLERY_ROWS);
+  const app = APPS[selectedApp];
+  const scale = Math.min(1, available.cols / app.columns, available.rows / app.rows);
   terminal.options.fontSize = Math.max(MIN_FONT_SIZE, Math.floor(DEFAULT_FONT_SIZE * scale));
   fit.fit();
 }
 function sendInput(text) {
-  if (!active || suspended) return;
+  if (!active || suspended || switching) return;
   try {
     const bytes = encoder.encode(text);
     const pointer = module._malloc(bytes.length || 1);
