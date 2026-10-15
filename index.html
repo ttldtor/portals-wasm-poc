@@ -8,8 +8,9 @@
   <script src="https://telegram.org/js/telegram-web-app.js?64"></script>
 </head>
 <body>
-  <header><h1>Portals gallery</h1><p>WebAssembly · xterm.js</p><p id="environment">Loading…</p></header>
+  <header><h1>Portals gallery</h1><button id="theme-toggle" type="button" disabled>Theme</button><p>WebAssembly · xterm.js</p><p id="environment">Loading…</p></header>
   <main><div id="terminal" aria-label="Portals terminal gallery"></div></main>
+  <output id="action-result" aria-live="polite">Run: —</output>
   <p id="status" role="status" data-state="loading">Loading gallery…</p>
   <script type="module" src="./main.js"></script>
 </body>

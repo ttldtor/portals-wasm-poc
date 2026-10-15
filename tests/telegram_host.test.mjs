@@ -168,3 +168,24 @@ test('dispose removes every listener and neutralizes queued callbacks and ready'
   assert.deepEqual([...f.properties], before);
   assert.deepEqual(f.calls, []);
 });
+
+test('visual viewport tracks the keyboard independently of stable Telegram height and cleans up', () => {
+  const f = fixture({ platform: 'android', viewportStableHeight: 640 });
+  const events = new Map();
+  const viewport = { height: 640,
+    addEventListener: (name, callback) => events.set(name, callback),
+    removeEventListener: (name) => events.delete(name) };
+  f.options.window.visualViewport = viewport;
+  const host = createTelegramHost(() => {}, f.options);
+  assert.equal(f.properties.get('--poc-visible-height'), '640px');
+  const queued = events.get('resize');
+  viewport.height = 320;
+  queued();
+  assert.equal(f.properties.get('--poc-visible-height'), '320px');
+  assert.equal(f.properties.get('--poc-viewport-height'), '640px');
+  host.dispose();
+  assert.equal(events.size, 0);
+  viewport.height = 500;
+  queued();
+  assert.equal(f.properties.get('--poc-visible-height'), '320px');
+});

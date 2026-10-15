@@ -17,6 +17,12 @@ export function createTelegramHost(onActivityChange, { window = globalThis.windo
     }
   }
 
+  function updateVisibleHeight() {
+    if (disposed) return;
+    const height = window.visualViewport?.height ?? window.innerHeight;
+    if (Number.isFinite(height) && height > 0) root.style.setProperty('--poc-visible-height', `${height}px`);
+  }
+
   function updateTheme() {
     const colors = { background: 'bg_color', text: 'text_color', hint: 'hint_color', border: 'secondary_bg_color' };
     for (const [name, key] of Object.entries(colors)) {
@@ -55,6 +61,12 @@ export function createTelegramHost(onActivityChange, { window = globalThis.windo
   }
 
   observe('visibilitychange', updateActivity, false);
+  for (const target of [window, window.visualViewport]) {
+    if (!target?.addEventListener) continue;
+    target.addEventListener('resize', updateVisibleHeight);
+    listeners.push(() => target.removeEventListener('resize', updateVisibleHeight));
+  }
+  updateVisibleHeight();
   if (telegram) {
     updateTheme();
     updateLayout();

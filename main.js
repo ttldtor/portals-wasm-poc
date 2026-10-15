@@ -9185,6 +9185,11 @@ function createTelegramHost(onActivityChange, { window: window2 = globalThis.win
       onActivityChange(next);
     }
   }
+  function updateVisibleHeight() {
+    if (disposed) return;
+    const height = window2.visualViewport?.height ?? window2.innerHeight;
+    if (Number.isFinite(height) && height > 0) root.style.setProperty("--poc-visible-height", `${height}px`);
+  }
   function updateTheme() {
     const colors = { background: "bg_color", text: "text_color", hint: "hint_color", border: "secondary_bg_color" };
     for (const [name, key] of Object.entries(colors)) {
@@ -9222,6 +9227,12 @@ function createTelegramHost(onActivityChange, { window: window2 = globalThis.win
     }
   }
   observe("visibilitychange", updateActivity, false);
+  for (const target of [window2, window2.visualViewport]) {
+    if (!target?.addEventListener) continue;
+    target.addEventListener("resize", updateVisibleHeight);
+    listeners2.push(() => target.removeEventListener("resize", updateVisibleHeight));
+  }
+  updateVisibleHeight();
   if (telegram) {
     updateTheme();
     updateLayout();
@@ -9322,8 +9333,15 @@ function createTouchInput(terminal2, sendInput2, isActive) {
 }
 
 // src/main.js
+var DEFAULT_FONT_SIZE = 16;
+var MIN_FONT_SIZE = 10;
+var GALLERY_COLUMNS = 40;
+var GALLERY_ROWS = 6;
 var status = document.querySelector("#status");
 var container = document.querySelector("#terminal");
+var themeButton = document.querySelector("#theme-toggle");
+var actionResult = document.querySelector("#action-result");
+var runs = 0;
 var module;
 var active = false;
 var closed = false;
@@ -9332,12 +9350,12 @@ var frame = null;
 var touchInput;
 var host = createTelegramHost(setSuspended);
 document.querySelector("#environment").textContent = host.telegram ? `Telegram \xB7 ${host.platform}` : "Browser preview";
-var terminal = new Dl({ cursorBlink: false, scrollback: 0, fontSize: 16, screenReaderMode: true });
+var terminal = new Dl({ cursorBlink: false, scrollback: 0, fontSize: DEFAULT_FONT_SIZE, screenReaderMode: true });
 var fit = new o();
 terminal.loadAddon(fit);
 terminal.open(container);
 terminal.write("\x1B[?25l");
-fit.fit();
+resizeTerminal();
 var bridge = createTerminalBridge(terminal);
 var encoder = new TextEncoder();
 var decoder = new TextDecoder();
@@ -9348,6 +9366,7 @@ function scheduleStep() {
 }
 function setSuspended(value) {
   suspended = value;
+  themeButton.disabled = !active || suspended;
   touchInput?.cancel();
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
@@ -9363,6 +9382,7 @@ function finish(error) {
   if (closed) return;
   closed = true;
   active = false;
+  themeButton.disabled = true;
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
   host.dispose();
@@ -9392,7 +9412,13 @@ function step() {
 async function start() {
   const { default: createGallery } = await import("./portals-gallery.js");
   if (closed) return;
-  module = await createGallery({ noInitialRun: true, portalsWrite: (bytes) => bridge.write(bytes) });
+  module = await createGallery({
+    noInitialRun: true,
+    portalsWrite: (bytes) => bridge.write(bytes),
+    portalsRun() {
+      if (active && !suspended) actionResult.textContent = `Run completed \xB7 ${++runs}`;
+    }
+  });
   if (closed) {
     module._portals_shutdown();
     return;
@@ -9401,6 +9427,12 @@ async function start() {
     throw new Error(messageFromWasm());
   }
   active = true;
+  themeButton.disabled = suspended;
+  const changeTheme = () => sendInput("\x1BOQ");
+  themeButton.addEventListener("click", changeTheme);
+  listeners.push({ dispose() {
+    themeButton.removeEventListener("click", changeTheme);
+  } });
   listeners.push(terminal.onData(sendInput));
   touchInput = createTouchInput(terminal, sendInput, () => active && !suspended);
   listeners.push(touchInput);
@@ -9414,7 +9446,7 @@ async function start() {
     }
   }));
   resizeObserver = new ResizeObserver(() => {
-    if (active) fit.fit();
+    if (active) resizeTerminal();
   });
   resizeObserver.observe(container);
   status.dataset.state = "running";
@@ -9422,6 +9454,14 @@ async function start() {
   terminal.focus();
   host.ready();
   scheduleStep();
+}
+function resizeTerminal() {
+  terminal.options.fontSize = DEFAULT_FONT_SIZE;
+  const available = fit.proposeDimensions();
+  if (!available) return;
+  const scale = Math.min(1, available.cols / GALLERY_COLUMNS, available.rows / GALLERY_ROWS);
+  terminal.options.fontSize = Math.max(MIN_FONT_SIZE, Math.floor(DEFAULT_FONT_SIZE * scale));
+  fit.fit();
 }
 function sendInput(text) {
   if (!active || suspended) return;

@@ -8,8 +8,15 @@ import { createTerminalBridge } from './terminal_bridge.js';
 import { createTelegramHost } from './telegram_host.js';
 import { createTouchInput } from './touch_input.js';
 
+const DEFAULT_FONT_SIZE = 16;
+const MIN_FONT_SIZE = 10;
+const GALLERY_COLUMNS = 40;
+const GALLERY_ROWS = 6;
 const status = document.querySelector('#status');
 const container = document.querySelector('#terminal');
+const themeButton = document.querySelector('#theme-toggle');
+const actionResult = document.querySelector('#action-result');
+let runs = 0;
 let module;
 let active = false;
 let closed = false;
@@ -18,13 +25,13 @@ let frame = null;
 let touchInput;
 const host = createTelegramHost(setSuspended);
 document.querySelector('#environment').textContent = host.telegram ? `Telegram · ${host.platform}` : 'Browser preview';
-const terminal = new Terminal({ cursorBlink: false, scrollback: 0, fontSize: 16, screenReaderMode: true });
+const terminal = new Terminal({ cursorBlink: false, scrollback: 0, fontSize: DEFAULT_FONT_SIZE, screenReaderMode: true });
 const fit = new FitAddon();
 terminal.loadAddon(fit);
 terminal.open(container);
 // Portals paints its own focus; hide xterm's independent terminal cursor (DECTCEM).
 terminal.write('\x1b[?25l');
-fit.fit();
+resizeTerminal();
 
 const bridge = createTerminalBridge(terminal);
 const encoder = new TextEncoder();
@@ -38,6 +45,7 @@ function scheduleStep() {
 
 function setSuspended(value) {
   suspended = value;
+  themeButton.disabled = !active || suspended;
   touchInput?.cancel();
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
@@ -55,6 +63,7 @@ function finish(error) {
   if (closed) return;
   closed = true;
   active = false;
+  themeButton.disabled = true;
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
   host.dispose();
@@ -87,7 +96,10 @@ function step() {
 async function start() {
   const { default: createGallery } = await import('./portals-gallery.js');
   if (closed) return;
-  module = await createGallery({ noInitialRun: true, portalsWrite: bytes => bridge.write(bytes) });
+  module = await createGallery({ noInitialRun: true, portalsWrite: bytes => bridge.write(bytes),
+    portalsRun() {
+      if (active && !suspended) actionResult.textContent = `Run completed · ${++runs}`;
+    } });
   if (closed) {
     module._portals_shutdown();
     return;
@@ -97,6 +109,10 @@ async function start() {
   }
 
   active = true;
+  themeButton.disabled = suspended;
+  const changeTheme = () => sendInput('\x1bOQ');
+  themeButton.addEventListener('click', changeTheme);
+  listeners.push({ dispose() { themeButton.removeEventListener('click', changeTheme); } });
   listeners.push(terminal.onData(sendInput));
   touchInput = createTouchInput(terminal, sendInput, () => active && !suspended);
   listeners.push(touchInput);
@@ -110,13 +126,22 @@ async function start() {
       finish(error.message || String(error));
     }
   }));
-  resizeObserver = new ResizeObserver(() => { if (active) fit.fit(); });
+  resizeObserver = new ResizeObserver(() => { if (active) resizeTerminal(); });
   resizeObserver.observe(container);
   status.dataset.state = 'running';
   status.textContent = 'Running — Click or tap controls. Tab / Enter also work; F2 changes theme.';
   terminal.focus();
   host.ready();
   scheduleStep();
+}
+
+function resizeTerminal() {
+  terminal.options.fontSize = DEFAULT_FONT_SIZE;
+  const available = fit.proposeDimensions();
+  if (!available) return;
+  const scale = Math.min(1, available.cols / GALLERY_COLUMNS, available.rows / GALLERY_ROWS);
+  terminal.options.fontSize = Math.max(MIN_FONT_SIZE, Math.floor(DEFAULT_FONT_SIZE * scale));
+  fit.fit();
 }
 
 function sendInput(text) {

@@ -1,0 +1,35 @@
+--- a/examples/wasm_gallery/main.cpp
++++ b/examples/wasm_gallery/main.cpp
+@@ -5,8 +5,19 @@
+ 
+ #include <emscripten.h>
+ #include <format>
++#include <stdexcept>
+ 
+ namespace {
++EM_JS(int, notifyRun, (), {
++  try {
++    Module['portalsRun']?.();
++    return 0;
++  } catch (failure) {
++    console.error(failure);
++    return -1;
++  }
++});
++
+ EM_JS(int, writeHost, (const char *bytes, std::size_t length), {
+   try {
+     return Module['portalsWrite'](HEAPU8.subarray(bytes, bytes + length));
+@@ -19,7 +30,11 @@
+ struct BrowserApplication {
+   example::Options options;
+   std::unique_ptr<wasm_gallery::BrowserTerminal> terminal;
+-  portals::ui::Scene scene = gallery::form(portals::ui::opts(options));
++  portals::ui::Scene scene = gallery::form(portals::ui::opts(options), [] {
++    if (notifyRun() < 0) {
++      throw std::runtime_error("Run host callback failed.");
++    }
++  });
+ };
+ 
+ // Member order keeps settings and transport alive while Scene finishes its session.

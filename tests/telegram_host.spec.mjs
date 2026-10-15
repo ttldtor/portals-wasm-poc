@@ -67,6 +67,28 @@ test('unavailable Telegram SDK still permits the standalone gallery', async ({ p
   await expect(page.locator('html')).toHaveAttribute('data-host', 'browser');
 });
 
+test('keyboard viewport keeps gallery controls and feedback inside the visible height', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockTelegram(page);
+  await page.goto('./');
+  await expect(page.locator('#status')).toHaveAttribute('data-state', 'running');
+  await page.evaluate(() => {
+    Object.defineProperty(visualViewport, 'height', { value: 350, configurable: true });
+    visualViewport.dispatchEvent(new Event('resize'));
+  });
+  await expect(page.locator('body')).toHaveCSS('height', '350px');
+  await expect(page.locator('.xterm-rows')).toContainText('Name (Enter commits; Tab changes focus):');
+  await expect.poll(async () => {
+    const box = await page.locator('.xterm-rows > div').nth(5).boundingBox();
+    return box.y + box.height;
+  }).toBeLessThan(350);
+  const status = await page.locator('#status').boundingBox();
+  expect(status.y + status.height).toBeLessThanOrEqual(350);
+  await page.screenshot({ path: testInfo.outputPath('keyboard-viewport-simulated.png') });
+  await page.evaluate(() => { delete visualViewport.height; visualViewport.dispatchEvent(new Event('resize')); });
+  await expect(page.locator('body')).toHaveCSS('height', '760px');
+});
+
 for (const asset of ['portals-gallery.js', 'portals-gallery.wasm']) {
   test(`closing during ${asset} loading cannot start a late session`, async ({ page }) => {
     await mockTelegram(page);
