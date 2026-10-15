@@ -57,14 +57,14 @@ test('real gallery accepts text, changes theme, resizes and quits', async ({ pag
 });
 
 test('missing WASM is visible outside the terminal', async ({ page }) => {
-  await page.route('**/portals-gallery.wasm', route => route.abort());
+  await page.route('**/portals-gallery.wasm*', route => route.abort());
   await page.goto('./');
   await expect(page.locator('#status')).toHaveAttribute('data-state', 'error');
   await expect(page.locator('#status')).toContainText('Error:');
 });
 
 test('invalid WASM after fetch is visible', async ({ page }) => {
-  await page.route('**/portals-gallery.wasm', route => route.fulfill({
+  await page.route('**/portals-gallery.wasm*', route => route.fulfill({
     contentType: 'application/wasm', body: Buffer.from([0, 1, 2, 3]) }));
   await page.goto('./');
   await expect(page.locator('#status')).toHaveAttribute('data-state', 'error');

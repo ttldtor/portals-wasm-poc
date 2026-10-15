@@ -32,6 +32,8 @@ Playwright starts and stops its test server. Local tests serve below `/portals-w
 
 `main.js`, `main.css` and source maps are generated from `src/`. The loader and WASM are rebuilt Release artifacts with the optional Run host notification. `npm run build` verifies their recorded hashes first. Pages publishes the repository root with `.nojekyll`; no custom deployment workflow is required.
 
+The build also updates JS/CSS cache keys in `index.html` and uses a shared key for the runtime loader and WASM. These keys take effect after loading the new HTML; an already open Mini App or cached HTML may still require a full reload.
+
 ## Runtime source
 
 [provenance.json](provenance.json) records the base commit and binary hashes. To rebuild the C++ runtime, check out Portals commit `080e5ea63bb813a97b996b156c7a5d9b5ee1d114`, apply [the runtime patch](source/portals-wasm-poc.patch) followed by [the browser Run notification patch](source/browser-run-feedback.patch), and activate Emscripten 6.0.12 with `EMSDK` set:

@@ -96,7 +96,7 @@ for (const asset of ['portals-gallery.js', 'portals-gallery.wasm']) {
     let observed;
     const requested = new Promise(resolve => { observed = resolve; });
     const gate = new Promise(resolve => { release = resolve; });
-    await page.route(`**/${asset}`, async route => {
+    await page.route(`**/${asset}*`, async route => {
       observed();
       await gate;
       await route.continue();

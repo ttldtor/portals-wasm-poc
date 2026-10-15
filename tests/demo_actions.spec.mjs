@@ -23,6 +23,21 @@ test('Run feedback failure reports an error and permits safe shutdown', async ({
   expect(errors).toEqual([]);
 });
 
+test('loader and WASM use matching versioned cache keys', async ({ page }) => {
+  const requests = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (/\/portals-gallery\.(js|wasm)$/.test(url.pathname)) requests.push(url);
+  });
+  await page.reload();
+  await expect(page.locator('#status')).toHaveAttribute('data-state', 'running');
+  expect(requests).toHaveLength(2);
+  const versions = requests.map(url => url.searchParams.get('v'));
+  expect(versions[0]).toMatch(/^[a-f0-9]{64}$/);
+  expect(versions[1]).toBe(versions[0]);
+  expect(new URL(await page.locator('script[type="module"]').getAttribute('src'), page.url()).searchParams.get('v')).toMatch(/^[a-f0-9]{64}$/);
+});
+
 for (const touch of [false, true]) {
   test(`Theme and real Run feedback work with ${touch ? 'touch' : 'mouse'}`, async ({ page }) => {
     const theme = page.getByRole('button', { name: 'Theme', exact: true });

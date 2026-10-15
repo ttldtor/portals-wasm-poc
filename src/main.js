@@ -12,6 +12,7 @@ const DEFAULT_FONT_SIZE = 16;
 const MIN_FONT_SIZE = 10;
 const GALLERY_COLUMNS = 40;
 const GALLERY_ROWS = 6;
+const RUNTIME_VERSION = __PORTALS_RUNTIME_VERSION__;
 const status = document.querySelector('#status');
 const container = document.querySelector('#terminal');
 const themeButton = document.querySelector('#theme-toggle');
@@ -94,9 +95,10 @@ function step() {
 }
 
 async function start() {
-  const { default: createGallery } = await import('./portals-gallery.js');
+  const { default: createGallery } = await import(runtimeUrl('./portals-gallery.js'));
   if (closed) return;
-  module = await createGallery({ noInitialRun: true, portalsWrite: bytes => bridge.write(bytes),
+  module = await createGallery({ noInitialRun: true, locateFile: runtimeUrl,
+    portalsWrite: bytes => bridge.write(bytes),
     portalsRun() {
       if (active && !suspended) actionResult.textContent = `Run completed · ${++runs}`;
     } });
@@ -133,6 +135,12 @@ async function start() {
   terminal.focus();
   host.ready();
   scheduleStep();
+}
+
+function runtimeUrl(file) {
+  const url = new URL(file, import.meta.url);
+  url.searchParams.set('v', RUNTIME_VERSION);
+  return url.href;
 }
 
 function resizeTerminal() {
