@@ -10,6 +10,8 @@ This is an unreleased prototype based on [Portals v0.3.0](https://github.com/ttl
 
 Click or tap the checkbox and buttons inside the terminal. Click or tap the text field to focus it, then type; Enter commits. Tab moves forward, Shift+Tab moves backward, and Space toggles the checkbox. **Theme** or F2 changes the theme; **Quit** or F10 finishes the session. Reload to restart. Browsers may reserve function keys.
 
+The gallery title uses the selected theme's table `HEADER` foreground, background and text attributes, adapted to the title label in the form's Grid.
+
 **Run something** animates the label from `(S)omething` through `somethin(G)` and back to `(S)omething`, with one transition every 300 ms. Run is disabled until the single pass finishes, approximately 4.8 seconds later. Input and the other actions remain available. Runtime stepping pauses while the page is hidden or Telegram is inactive; the next animation deadline is scheduled from the current runtime time, without a burst of missed frames.
 
 Mouse clicks use xterm.js SGR mouse reporting. A primary touch or pen tap of up to 500 ms, moving no more than 10 CSS pixels and ending in the same cell, is translated to the same cell-coordinate protocol for the existing runtime. Swipes, long presses, cancelled touches and multiple fingers do not activate controls; touch dragging, pinch gestures and long-press selection are outside this POC. Shift-click retains xterm's normal text-selection behavior. There are no touch equivalents for every terminal key.

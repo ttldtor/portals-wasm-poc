@@ -58,7 +58,7 @@
        return managedFailure("Gallery step", step.error());
 --- /dev/null
 +++ b/examples/wasm_gallery/demo_scene.hpp
-@@ -0,0 +1,171 @@
+@@ -0,0 +1,188 @@
 +// Copyright (c) 2026 ttldtor.
 +// SPDX-License-Identifier: BSL-1.0
 +#pragma once
@@ -85,15 +85,12 @@
 +
 +      return result;
 +    });
-+    scene_.style(ui::style("#gallery-title { foreground: #ffffff; background: #305568; bold: true; } "
-+                           "Button:focused { bold: true; }"));
++    scene_.style(ui::style("Button:focused { bold: true; }"));
 +    scene_.configure([this](ManagedScene &owner, Application &app) {
 +      owner_ = &owner;
 +      app_ = &app;
 +      scope_ = example::take(app.scheduler().makeScope());
-+      theme_ = example::themeIndex(options_.get().theme);
-+
-+      example::take(owner.theme(example::THEME_PRESETS[theme_].make()));
++      applyTheme(example::themeIndex(options_.get().theme));
 +      configureGrid();
 +      example::take(app.router().setFocus(editor_.node()));
 +    });
@@ -160,11 +157,31 @@
 +    example::take(setGridOptions(app_->tree(), grid_.node(), grid));
 +  }
 +
-+  void changeTheme() {
-+    const auto next = (theme_ + 1) % example::THEME_PRESETS.size();
++  void applyTheme(std::size_t index) {
++    using namespace portals;
 +
-+    example::take(owner_->theme(example::THEME_PRESETS[next].make()));
-+    theme_ = next;
++    auto sheet = example::THEME_PRESETS[index].make();
++    StyleTarget table;
++    StyleRule titleRule;
++
++    table.type = "Table";
++
++    const auto header = resolveStyle(sheet, table).header;
++
++    // This Grid's Label paints NORMAL; adapt the theme's table HEADER role to that cell.
++    titleRule.selector.id = "gallery-title";
++    titleRule.declarations.foreground = header.foreground;
++    titleRule.declarations.background = header.background;
++    titleRule.declarations.bold = header.bold;
++    titleRule.declarations.italic = header.italic;
++    titleRule.declarations.underline = header.underline;
++    sheet.rules.push_back(std::move(titleRule));
++    example::take(owner_->theme(sheet));
++    theme_ = index;
++  }
++
++  void changeTheme() {
++    applyTheme((theme_ + 1) % example::THEME_PRESETS.size());
 +  }
 +
 +  void startAnimation() {

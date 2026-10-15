@@ -9337,7 +9337,7 @@ var DEFAULT_FONT_SIZE = 18;
 var MIN_FONT_SIZE = 10;
 var GALLERY_COLUMNS = 22;
 var GALLERY_ROWS = 11;
-var RUNTIME_VERSION = "0e5fbdf195695076e12a34a1ed6151d1c7f3926aed091d560f452b945e34b558";
+var RUNTIME_VERSION = "689dbfe9f6d68123c7f5ea692cd6f8e68739f415660e4de6a0f3407049a4710f";
 var status = document.querySelector("#status");
 var container = document.querySelector("#terminal");
 var module;

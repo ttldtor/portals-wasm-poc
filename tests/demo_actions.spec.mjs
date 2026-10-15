@@ -20,7 +20,31 @@ test('gallery has an in-terminal header, actions, inline editor and explicit bla
   const header = rows.nth(0).locator('span').filter({ hasText: 'Portals gallery' });
   const background = await header.evaluate(element => getComputedStyle(element).backgroundColor);
   expect(background).not.toBe('rgba(0, 0, 0, 0)');
-  expect(background).not.toBe(await rows.nth(1).locator('span').first().evaluate(element => getComputedStyle(element).backgroundColor));
+  expect(await header.evaluate(element => getComputedStyle(element).color)).not.toBe(
+    await rows.nth(1).locator('span').first().evaluate(element => getComputedStyle(element).color));
+});
+
+test('gallery heading uses the HEADER palette in every built-in theme', async ({ page }, testInfo) => {
+  const header = galleryRow(page, 'Portals gallery').locator('span').filter({ hasText: 'Portals gallery' });
+  const palettes = [
+    ['modern', 'rgb(75, 180, 220)', 'rgb(24, 28, 36)'],
+    ['turbo', 'rgb(255, 255, 255)', 'rgb(0, 0, 170)'],
+    ['nord', 'rgb(180, 142, 173)', 'rgb(46, 52, 64)'],
+    ['gruvbox', 'rgb(250, 189, 47)', 'rgb(40, 40, 40)'],
+    ['tokyo-night', 'rgb(255, 158, 100)', 'rgb(26, 27, 38)'],
+    ['catppuccin-latte', 'rgb(254, 100, 11)', 'rgb(239, 241, 245)']
+  ];
+  for (const [index, [theme, foreground, background]] of palettes.entries()) {
+    await expect(header, `${theme}: header foreground`).toHaveCSS('color', foreground);
+    await expect(header, `${theme}: header background`).toHaveCSS('background-color', background);
+    expect(Number(await header.evaluate(element => getComputedStyle(element).fontWeight))).toBeGreaterThanOrEqual(700);
+    if (theme === 'modern' || theme === 'catppuccin-latte') {
+      await page.screenshot({ path: testInfo.outputPath(`theme-header-${theme}.png`) });
+    }
+    if (index % 2 === 0) await activateControl(page, 'Theme');
+    else await page.locator('.xterm-helper-textarea').press('F2');
+  }
+  await expect(header).toHaveCSS('color', palettes[0][1]);
 });
 
 test('Name separator uses the label background in every gallery theme', async ({ page }, testInfo) => {
