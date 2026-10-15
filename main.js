@@ -9302,6 +9302,9 @@ function createTouchInput(terminal2, sendInput2, isActive) {
   function interrupted(event) {
     if (pending?.id === event.pointerId) cancel();
   }
+  function anotherPointer(event) {
+    if (pending && event.pointerType !== "mouse" && event.pointerId !== pending.id) cancel();
+  }
   const handlers = {
     pointerdown: down,
     pointermove: move,
@@ -9310,9 +9313,11 @@ function createTouchInput(terminal2, sendInput2, isActive) {
     lostpointercapture: interrupted
   };
   for (const [name, handler] of Object.entries(handlers)) screen.addEventListener(name, handler, { capture: true, passive: false });
+  screen.ownerDocument.addEventListener("pointerdown", anotherPointer, { capture: true });
   return { cancel, dispose() {
     cancel();
     for (const [name, handler] of Object.entries(handlers)) screen.removeEventListener(name, handler, { capture: true });
+    screen.ownerDocument.removeEventListener("pointerdown", anotherPointer, { capture: true });
   } };
 }
 

@@ -5,6 +5,8 @@ import { createTouchInput } from '../src/touch_input.js';
 
 function setup() {
   const screen = new EventTarget();
+  const document = new EventTarget();
+  screen.ownerDocument = document;
   const captures = new Set();
   let rect = { left: 10, top: 20, width: 320, height: 200 };
   screen.getBoundingClientRect = () => rect;
@@ -27,6 +29,11 @@ function setup() {
     return event;
   }
   return { fire, writes, captures, adapter, terminal, get focused() { return focused; },
+    outsideDown() {
+      const event = new Event('pointerdown');
+      Object.assign(event, { pointerType: 'touch', pointerId: 2, isPrimary: false });
+      document.dispatchEvent(event);
+    },
     resize(value) { rect = value; }, deactivate() { active = false; } };
 }
 
@@ -44,6 +51,15 @@ test('touch/pen taps use current cell geometry and one press/release pair; mouse
   assert.equal(s.fire('pointerdown', { pointerType: 'mouse' }).defaultPrevented, false);
   s.fire('pointerup', { pointerType: 'mouse' });
   assert.equal(s.writes.length, 2);
+});
+
+test('a second finger outside the terminal cancels the pending tap', () => {
+  const s = setup();
+  s.fire('pointerdown');
+  s.outsideDown();
+  s.fire('pointerup');
+  assert.deepEqual(s.writes, []);
+  assert.equal(s.captures.size, 0);
 });
 
 test('a stationary long press cannot activate a control', () => {
