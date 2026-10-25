@@ -29,6 +29,43 @@ main { flex: 1; min-height: 90px; max-height: 620px; padding: .5rem; background:
 #status { margin: 0; min-height: 1.5em; }
 #status[data-state="error"] { color: #e16f76; }
 #status[data-state="finished"] { color: #58a97a; }
+.moto-panel[hidden] { display: none; }
+.moto-panel { display: flex; flex-direction: column; gap: .5rem; flex: none; }
+.moto-setup { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-size: .85rem; }
+.moto-panel button, .moto-setup input {
+  font: inherit; color: inherit; background: var(--poc-background, #11151c);
+  border: 1px solid var(--poc-border, #536278); border-radius: .4rem;
+  min-height: 44px; padding: .5rem .65rem;
+}
+.moto-setup input { width: 8rem; min-width: 0; font-variant-numeric: tabular-nums; }
+.moto-panel button { cursor: pointer; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.moto-panel button:focus-visible, .moto-setup input:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.moto-panel button:disabled { opacity: .55; cursor: default; }
+.moto-panel button[aria-pressed="true"] { background: var(--poc-text, #e5eaf2); color: var(--poc-background, #11151c); }
+.moto-panel button:hover:not(:disabled) { border-color: currentColor; }
+#moto-hint { margin: 0; height: 3.9em; overflow: auto; font-size: .85rem; line-height: 1.3; }
+.moto-pedals { display: grid; grid-template-columns: minmax(0, 1fr) minmax(92px, .8fr) minmax(0, 1fr); gap: .5rem; }
+.moto-pedals button { min-height: 88px; font-weight: 650; }
+.moto-pedals .moto-center { border-width: 2px; }
+body:has(.moto-panel:not([hidden])) header p { display: none; }
+@media (max-width: 520px) {
+  nav button { min-width: 0; flex: 1; padding: .5rem; }
+  .moto-setup { gap: .35rem; }
+  .moto-setup input { width: 6.5rem; }
+  .moto-pedals button { min-height: 80px; }
+}
+@media (max-height: 540px) and (orientation: landscape) {
+  body:has(.moto-panel:not([hidden])) { display: grid; grid-template-columns: minmax(0, 1fr) minmax(230px, 38%); grid-template-rows: auto minmax(0, 1fr) auto; }
+  body:has(.moto-panel:not([hidden])) header { display: none; }
+  body:has(.moto-panel:not([hidden])) nav { grid-column: 1 / -1; }
+  body:has(.moto-panel:not([hidden])) main { grid-column: 1; height: 100%; max-height: none; }
+  .moto-panel { grid-column: 2; grid-row: 2; justify-content: space-between; }
+  .moto-setup input { width: 6rem; }
+  .moto-setup label { display: none; }
+  .moto-pedals { gap: .25rem; grid-template-columns: 1fr 1fr 1fr; }
+  .moto-pedals button { min-height: 72px; padding: .25rem; }
+  body:has(.moto-panel:not([hidden])) #status { grid-column: 1 / -1; font-size: .75rem; }
+}
 @media (max-width: 520px) {
   header p { display: none; }
   h1 { font-size: 1.2rem; }

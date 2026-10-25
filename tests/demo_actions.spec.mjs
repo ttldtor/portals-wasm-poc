@@ -111,10 +111,14 @@ test('editor input and theme remain responsive while Run is disabled', async ({ 
   await page.locator('.xterm-helper-textarea').pressSequentially(' active');
   await expect(galleryRow(page, 'Name :')).toContainText('Portals active');
   await page.locator('.xterm-helper-textarea').press('Enter');
+  const header = galleryRow(page, 'Portals gallery').locator('span').filter({ hasText: 'Portals gallery' });
+  const previousColor = await header.evaluate(element => getComputedStyle(element).color);
   await activateControl(page, 'Theme');
+  await expect(header).not.toHaveCSS('color', previousColor);
   await expect(page.locator('#status')).toHaveAttribute('data-state', 'running');
   // From Alerts, disabled Run is skipped and the next Tab reaches Theme.
   await activateControl(page, 'Alerts');
+  await expect(galleryRow(page, 'Alerts')).toContainText('[x] Alerts');
   await page.locator('.xterm-helper-textarea').press('Tab');
   await page.locator('.xterm-helper-textarea').press('Tab');
   await page.locator('.xterm-helper-textarea').press('Enter');

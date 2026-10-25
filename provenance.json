@@ -3,12 +3,12 @@
   "task": "PRTLS-142",
   "base_release": "v0.3.0",
   "base_commit": "080e5ea63bb813a97b996b156c7a5d9b5ee1d114",
-  "runtime_status": "Unreleased experimental extension of v0.3.0; not the unmodified release.",
+  "runtime_status": "Unreleased experimental Gallery, Level and Moto on the existing pinned runtime; not a Portals library release.",
   "runtime_patch": "source/portals-wasm-poc.patch",
   "runtime_patch_sha256": "0a38d601480fbb8ced77834e62591cd8a469b200102a7ba7361f905232a2614d",
   "toolchain": "Emscripten 6.0.12, native Wasm exceptions; no Asyncify/JSPI/pthreads",
-  "portals_gallery_wasm_sha256": "bbe7b16ae5bdebf44dd5f391de7669bcdf714ea7df4b7cd6eeaed74ce3096a1f",
-  "portals_gallery_loader_sha256": "812ad6ed79cc96fa453a5936aaf2540cfbce0504be9d6f6a28621b68d81d9388",
+  "portals_gallery_wasm_sha256": "1022884af1bc647889e7698ad9efcd659f2ffdd766e5b5883a5ae7e38d992158",
+  "portals_gallery_loader_sha256": "0f6309db48953c7251e18841ff5fd991f06cbb99904a13e315ce7e8ba94e3f06",
   "runtime_verification": "PRTLS-140: Windows/MSVC Debug/Release164 each, SDK smoke, Chromium browser6 each; native examples27 unchanged.",
   "telegram_verification": "Historical: user confirmed PRTLS-147 fit and input on Android. Current Gallery/Level selector and physical DeviceOrientation require device retesting. Chromium SDK/viewport simulations are separate.",
   "runtime_host_patch": "source/browser-run-feedback.patch",
@@ -21,5 +21,8 @@
   "runtime_header_followup": "PRTLS-152: Grid title adapts selected Table HEADER paint values in one theme installation. Debug/Release builds and SDK smoke; Chromium25/25 local with6exactheaderpalettes, Theme/F2 and wrap;3patchreplay/native27hashes verified. Earlier fields describe historical qualification.",
   "runtime_apps_patch": "source/apps-level.patch",
   "runtime_apps_patch_sha256": "d2a83a054e8d11381788913ccf20d0b4a96714e72cf63fb0c9c19a19c4a27b38",
-  "runtime_apps_verification": "PRTLS-153: Debug/Release Emscripten builds, SDK smoke and real export probes PASS; Node30/30, Chromium25 existing scenarios plus8 app scenarios PASS locally. Four-patch replay and27 native-example raw hashes match. Independent bounded ownership/lifetime review with Node15 and Release export probe PASS. Physical Telegram orientation qualification remains pending."
+  "runtime_apps_verification": "PRTLS-153: Debug/Release Emscripten builds, SDK smoke and real export probes PASS; Node30/30, Chromium25 existing scenarios plus8 app scenarios PASS locally. Four-patch replay and27 native-example raw hashes match. Independent bounded ownership/lifetime review with Node15 and Release export probe PASS. Physical Telegram orientation qualification remains pending.",
+  "runtime_moto_patch": "source/moto.patch",
+  "runtime_moto_verification": "Emscripten 6.0.12 Debug/Release and SDK/real-WASM ABI smoke PASS; model14 cases/1293 assertions in both modes, Node36/36 and local Chrome155 browser37/37 PASS. Independent bounded state/lifetime review completed, five-patch replay matches and native example source remains unchanged. Physical Telegram sensor/display qualification remains pending.",
+  "runtime_moto_patch_sha256": "406c84e23c38854d07ca64c561f167ce232f68a812d8f06ec370eddeb48ea229"
 }

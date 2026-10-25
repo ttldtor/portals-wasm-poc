@@ -1,0 +1,1411 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -40,6 +40,8 @@
+ if(EMSCRIPTEN)
+   target_sources(portals_core PRIVATE src/terminal/unsupported.cpp)
+   target_compile_options(portals_core PUBLIC -fwasm-exceptions)
++  # Keep source_location diagnostics portable in published experimental binaries.
++  target_compile_options(portals_core PUBLIC "-ffile-prefix-map=${CMAKE_SOURCE_DIR}=portals")
+   target_link_options(portals_core PUBLIC -fwasm-exceptions)
+ elseif(WIN32)
+   target_sources(portals_core PRIVATE src/terminal/windows.cpp)
+--- a/examples/wasm_gallery/main.cpp
++++ b/examples/wasm_gallery/main.cpp
+@@ -3,6 +3,7 @@
+ #include "browser_terminal.hpp"
+ #include "demo_scene.hpp"
+ #include "level_scene.hpp"
++#include "moto_scene.hpp"
+ 
+ #include <emscripten.h>
+ #include <format>
+@@ -20,7 +21,7 @@
+ 
+ EM_JS(int, clearHost, (), {
+   try {
+-    Module['portalsClear']?.();
++    Module['portalsClear'] ?.();
+     return 0;
+   } catch (failure) {
+     console.error(failure);
+@@ -36,20 +37,26 @@
+   std::unique_ptr<wasm_gallery::BrowserTerminal> terminal;
+   std::unique_ptr<wasm_gallery::DemoScene> gallery;
+   std::unique_ptr<wasm_gallery::LevelScene> level;
++  std::unique_ptr<wasm_gallery::MotoScene> moto;
+   std::optional<int> requested;
+   int active{-1};
+   unsigned session{};
++  std::uint64_t frames{};
+   bool retiring{};
+ 
+   portals::ui::Scene *scene() noexcept {
+-    return gallery ? &gallery->scene() : level ? &level->scene() : nullptr;
++    return gallery ? &gallery->scene() : level ? &level->scene()
++      : moto                                   ? &moto->scene()
++                                               : nullptr;
+   }
+ 
+   void retire() {
+     gallery.reset();
+     level.reset();
++    moto.reset();
+     terminal.reset();
+     active = -1;
++    frames = 0;
+     retiring = false;
+   }
+ };
+@@ -92,8 +99,10 @@
+ 
+   if (id == 0) {
+     owner.gallery = std::make_unique<wasm_gallery::DemoScene>(portals::ui::opts(owner.options), owner.theme);
++  } else if (id == 1) {
++    owner.level = std::make_unique<wasm_gallery::LevelScene>(portals::ui::opts(owner.options), owner.theme);
+   } else {
+-    owner.level = std::make_unique<wasm_gallery::LevelScene>(portals::ui::opts(owner.options), owner.theme);
++    owner.moto = std::make_unique<wasm_gallery::MotoScene>(portals::ui::opts(owner.options), owner.theme);
+   }
+ 
+   auto started = owner.scene()->start(*owner.terminal);
+@@ -109,8 +118,11 @@
+ }
+ 
+ bool receivesSensor(unsigned session) noexcept {
+-  return application && application->active == 1 && !application->requested && !application->retiring &&
+-         application->session == session;
++  return application && application->active == 1 && !application->requested && !application->retiring && application->session == session;
++}
++
++bool receivesMoto(unsigned session) noexcept {
++  return application && application->active == 2 && !application->requested && !application->retiring && application->session == session;
+ }
+ } // namespace
+ 
+@@ -140,12 +152,12 @@
+   }
+ }
+ 
+-/** @param id Zero for a fresh Gallery, one for a fresh Level.
++/** @param id Zero for a fresh Gallery, one for a fresh Level, two for a fresh Moto.
+  * @return Zero after retaining latest intent, or minus one for an invalid request.
+  * No scene is destroyed or started during this export or inside a UI callback.
+  */
+ EMSCRIPTEN_KEEPALIVE int portals_select_app(int id) {
+-  if (!application || (id != 0 && id != 1)) {
++  if (!application || (id < 0 || id > 2)) {
+     return fail("Invalid application selection.");
+   }
+ 
+@@ -207,11 +219,17 @@
+       owner.level->beforeStep();
+     }
+ 
++    if (owner.moto && !owner.retiring) {
++      owner.moto->beforeStep();
++    }
++
+     auto step = scene->step();
+ 
+     if (!step) {
+       return managedFailure("Application step", step.error());
+     }
++
++    owner.frames = step->stats.frames;
+ 
+     if (!step->finished) {
+       return 0;
+@@ -238,24 +256,113 @@
+  * @return Zero, including ignored malformed/stale deliveries; no borrowed values survive.
+  */
+ EMSCRIPTEN_KEEPALIVE int portals_orientation(unsigned session, double beta, double gamma, int angle) {
+-  if (receivesSensor(session) && std::isfinite(beta) && std::isfinite(gamma) &&
+-      (angle == 0 || angle == 90 || angle == 180 || angle == 270)) {
++  if (receivesSensor(session) && std::isfinite(beta) && std::isfinite(gamma) && (angle == 0 || angle == 90 || angle == 180 || angle == 270)) {
+     application->level->orientation(beta, gamma, angle);
+   }
+ 
+   return 0;
+ }
+ 
+-/** @param session Expected owning Level generation; stale/non-Level deliveries are ignored.
++/** @param session Expected owning Level or Moto generation; stale/wrong-app deliveries are ignored.
+  * @param state Zero unavailable, one waiting, two paused; invalid values are ignored.
+  * @return Zero; owning status is applied at the next runtime step.
+  */
+ EMSCRIPTEN_KEEPALIVE int portals_sensor_state(unsigned session, int state) {
+   if (receivesSensor(session) && state >= 0 && state <= 2) {
+     application->level->sensorState(state);
+-  }
+-
+-  return 0;
++  } else if (receivesMoto(session) && state >= 0 && state <= 2) {
++    application->moto->sensorState(state);
++  }
++
++  return 0;
++}
++
++/** @param session Expected owning Moto generation; stale deliveries are ignored.
++ * @param beta Finite device pitch in radians.
++ * @param gamma Finite device roll in radians.
++ * @param angle Quarter-turn screen angle in degrees.
++ * @param receiveTimeMs Monotonic JS arrival time in milliseconds, from performance.now().
++ * @return Zero, including ignored malformed deliveries; only owning model state is changed.
++ */
++EMSCRIPTEN_KEEPALIVE int portals_moto_sample(unsigned session, double beta, double gamma, int angle, double receiveTimeMs) {
++  if (receivesMoto(session)) {
++    application->moto->sample(beta, gamma, angle, receiveTimeMs);
++  }
++
++  return 0;
++}
++
++/** @param session Expected owning Moto generation.
++ * @param gasHeld Nonzero while at least one pointer owns the gas zone.
++ * @param brakeHeld Nonzero while at least one pointer owns the brake zone.
++ * @param nowMs Monotonic JS event time in milliseconds.
++ * @return Zero; no UI/runtime work occurs in this export.
++ */
++EMSCRIPTEN_KEEPALIVE int portals_moto_controls(unsigned session, int gasHeld, int brakeHeld, double nowMs) {
++  if (receivesMoto(session)) {
++    application->moto->controls(gasHeld != 0, brakeHeld != 0, nowMs);
++  }
++
++  return 0;
++}
++
++/** @param session Expected owning Moto generation.
++ * @param action Press=0, release=1, cancel=2, pause=3, continue=4, recalibrate press=5, restart=6.
++ * @param nowMs Monotonic JS event time in milliseconds.
++ * @return Zero, including stale/invalid intents; no widget or scene lifecycle calls occur here.
++ */
++EMSCRIPTEN_KEEPALIVE int portals_moto_action(unsigned session, int action, double nowMs) {
++  if (receivesMoto(session) && action >= 0 && action <= 6) {
++    application->moto->action(static_cast<wasm_gallery::MotoAction>(action), nowMs);
++  }
++
++  return 0;
++}
++
++/** @param session Expected owning Moto generation.
++ * @param nowMs Current performance.now() in milliseconds, retained until the next bounded step.
++ * @return Zero; simulation and widget mutation occur only in beforeStep().
++ */
++EMSCRIPTEN_KEEPALIVE int portals_moto_tick(unsigned session, double nowMs) {
++  if (receivesMoto(session)) {
++    application->moto->tick(nowMs);
++  }
++
++  return 0;
++}
++
++/** @param session Expected owning Moto generation.
++ * @param seed Unsigned 32-bit route identity; accepted only while READY.
++ * @return Zero; restart retains the seed and does not retain a route history.
++ */
++EMSCRIPTEN_KEEPALIVE int portals_moto_seed(unsigned session, std::uint32_t seed) {
++  if (receivesMoto(session)) {
++    application->moto->seed(seed);
++  }
++
++  return 0;
++}
++
++/** @param session Expected owning Moto generation.
++ * @return READY=0, HELD=1, SETTLING=2, COLLECTING=3, COUNTDOWN=4, RACING=5, PAUSED=6; -1 for stale/non-Moto.
++ */
++EMSCRIPTEN_KEEPALIVE int portals_moto_state(unsigned session) {
++  return receivesMoto(session) ? application->moto->state() : -1;
++}
++
++/** @param session Expected owning Moto generation.
++ * @return One only when paused with valid neutral, fresh sensor and released pedals; otherwise zero.
++ */
++EMSCRIPTEN_KEEPALIVE int portals_moto_can_resume(unsigned session) {
++  return receivesMoto(session) && application->moto->canResume() ? 1 : 0;
++}
++
++/** @param session Expected owning Moto generation.
++ * @return Accepted runtime frame submissions for this session, or zero for stale/non-Moto.
++ * This counter does not measure xterm parsing, GPU presentation or physical display refresh.
++ */
++EMSCRIPTEN_KEEPALIVE double portals_moto_frames(unsigned session) {
++  return receivesMoto(session) ? static_cast<double>(application->frames) : 0;
+ }
+ 
+ /** @param bytes Borrowed UTF-8 fragment, copied before return.
+--- a/examples/wasm_gallery/CMakeLists.txt
++++ b/examples/wasm_gallery/CMakeLists.txt
+@@ -20,3 +20,10 @@
+ portals_enable_warnings(portals_wasm_sdk_smoke)
+ set_target_properties(portals_wasm_sdk_smoke PROPERTIES SUFFIX ".js")
+ target_link_options(portals_wasm_sdk_smoke PRIVATE "-sENVIRONMENT=node")
++
++# Pure control/route regression checks run under Node and never open a window.
++add_executable(portals_moto_model_tests moto_model_tests.cpp)
++target_compile_features(portals_moto_model_tests PRIVATE cxx_std_23)
++portals_enable_warnings(portals_moto_model_tests)
++set_target_properties(portals_moto_model_tests PROPERTIES SUFFIX ".js")
++target_link_options(portals_moto_model_tests PRIVATE "-sENVIRONMENT=node")
+--- /dev/null
++++ b/examples/wasm_gallery/moto_model.hpp
+@@ -0,0 +1,639 @@
++// Copyright (c) 2026 ttldtor. SPDX-License-Identifier: BSL-1.0
++#pragma once
++
++#include <algorithm>
++#include <array>
++#include <cmath>
++#include <cstddef>
++#include <cstdint>
++#include <numbers>
++#include <string_view>
++
++namespace wasm_gallery {
++/** @brief Experimental tuning values; times use the host's monotonic millisecond clock. */
++struct MotoConfig {
++  double settleMs{250};              ///< Post-release impulse rejection interval.
++  double stableMs{600};              ///< Minimum uninterrupted stable sample duration.
++  std::size_t stableSamples{10};     ///< Minimum distinct arrivals in that window.
++  double stableRangeDegrees{2};      ///< Maximum range on either calibration axis.
++  double stableRateDegrees{5};       ///< Maximum adjacent angular rate, degrees per second.
++  double sampleGapMs{150};           ///< Largest permitted calibration sample gap.
++  double staleMs{250};               ///< Freshness bound for racing and resuming.
++  double preparationTimeoutMs{5000}; ///< Time from release before preparation pauses.
++  double countdownMs{1500};          ///< Delay between calibration/resume and racing.
++  double smoothingMs{75};            ///< Time constant for both control axes.
++  double deadzoneDegrees{1.5};       ///< Neutral deadzone before normalized controls.
++  double steeringDegrees{25};        ///< Tilt reaching full steering.
++  double pedalDegrees{20};           ///< Tilt reaching full throttle or brake.
++  double physicsStepMs{1000.0 / 60}; ///< Fixed simulation step.
++  unsigned maxCatchupSteps{4};       ///< Maximum simulation work per host frame.
++  double maxSpeed{28};               ///< Forward speed limit in route metres per second.
++  double acceleration{9};            ///< Full throttle acceleration, metres per second squared.
++  double braking{18};                ///< Full brake deceleration, metres per second squared.
++  double roadHalfWidth{4};           ///< Drivable half width in world metres.
++};
++
++/** @brief Values are part of the sample's JavaScript/WASM ABI. */
++enum class MotoState {
++  READY = 0,
++  HELD = 1,
++  SETTLING = 2,
++  COLLECTING = 3,
++  COUNTDOWN = 4,
++  RACING = 5,
++  PAUSED = 6
++};
++
++/** @brief Values are part of the sample's JavaScript/WASM ABI. */
++enum class MotoAction {
++  PRESS = 0,
++  RELEASE = 1,
++  CANCEL = 2,
++  PAUSE = 3,
++  CONTINUE = 4,
++  RECALIBRATE = 5,
++  RESTART = 6
++};
++
++/** @brief Indexed route generation; a bounded cache never retains the route's history. */
++class MotoTrack {
++public:
++  static constexpr std::size_t CAPACITY = 96;      ///< Fixed resident segment count, independent of race duration.
++  static constexpr double SEGMENT_METRES = 4;      ///< Distance between cached route samples, metres.
++  static constexpr unsigned GENERATOR_VERSION = 1; ///< Identifies the indexed hash and interpolation contract.
++
++  /** @param seed All 32 bits identify the versioned route. */
++  explicit MotoTrack(std::uint32_t seed = 1) noexcept : seed_(seed) {
++    refresh(0);
++  }
++
++  /** @param seed New route identity; discard the old cache and return to its beginning. */
++  void reset(std::uint32_t seed) noexcept {
++    seed_ = seed;
++    first_ = 0;
++    initialized_ = false;
++    refresh(0);
++  }
++
++  /** @param distance Finite nonnegative route distance in metres.
++   * Work is bounded by CAPACITY even after an arbitrary seek.
++   */
++  void refresh(double distance) noexcept {
++    const auto next = static_cast<std::uint64_t>(std::max(0.0, std::floor(distance / SEGMENT_METRES) - 4));
++
++    if (!initialized_ || next < first_ || next - first_ >= CAPACITY) {
++      for (std::size_t offset = 0; offset < CAPACITY; ++offset) {
++        store(next + offset);
++      }
++    } else {
++      for (auto index = first_ + CAPACITY; index < next + CAPACITY; ++index) {
++        store(index);
++      }
++    }
++
++    first_ = next;
++    initialized_ = true;
++  }
++
++  /** @param distance Finite nonnegative route distance in metres.
++   * @return Smooth road centre in world metres, independent of cache/viewport/FPS.
++   */
++  double centerAt(double distance) const noexcept {
++    const double position = std::max(0.0, distance) / ANCHOR_METRES;
++    const auto index = static_cast<std::uint64_t>(std::floor(position));
++    const double t = position - static_cast<double>(index);
++    const double blend = t * t * t * (t * (t * 6 - 15) + 10);
++
++    return anchor(index) + (anchor(index + 1) - anchor(index)) * blend;
++  }
++
++  /** @param index Absolute segment index.
++   * @return Cached centre if resident, otherwise the same stateless indexed result.
++   */
++  double segmentCenter(std::uint64_t index) const noexcept {
++    if (index >= first_ && index - first_ < CAPACITY) {
++      return centers_[index % CAPACITY];
++    }
++
++    return centerAt(static_cast<double>(index) * SEGMENT_METRES);
++  }
++
++  /** @return Oldest cached absolute segment index. */
++  std::uint64_t firstIndex() const noexcept {
++    return first_;
++  }
++
++  /** @return Fixed number of retained segment values. */
++  std::size_t storedSegments() const noexcept {
++    return centers_.size();
++  }
++
++  /** @return Current route seed. */
++  std::uint32_t seed() const noexcept {
++    return seed_;
++  }
++
++private:
++  static constexpr double ANCHOR_METRES = 64;
++  static constexpr double CENTER_AMPLITUDE = 4;
++
++  static std::uint32_t mix(std::uint32_t value) noexcept {
++    value ^= value >> 16;
++    value *= 0x7feb352dU;
++    value ^= value >> 15;
++    value *= 0x846ca68bU;
++    value ^= value >> 16;
++
++    return value;
++  }
++
++  double anchor(std::uint64_t index) const noexcept {
++    const auto value = mix(seed_ ^ mix(static_cast<std::uint32_t>(index)) ^ mix(static_cast<std::uint32_t>(index >> 32) + 0x9e3779b9U));
++
++    return (static_cast<double>(value) / 4294967295.0 * 2 - 1) * CENTER_AMPLITUDE;
++  }
++
++  void store(std::uint64_t index) noexcept {
++    centers_[index % CAPACITY] = centerAt(static_cast<double>(index) * SEGMENT_METRES);
++  }
++
++  std::array<double, CAPACITY> centers_{};
++  std::uint32_t seed_{};
++  std::uint64_t first_{};
++  bool initialized_{};
++};
++
++/** @brief Owning, allocation-free control and race state, accessed only on the UI thread.
++ * Input methods do not call widgets, callbacks or transports. JS arrivals retain their original
++ * order. advance() is the only simulation entry; presentation consumes getters between steps.
++ */
++class MotoModel {
++public:
++  /** @param config Owning control and simulation settings; use nonnegative finite tuning values.
++   * @param seed Versioned procedural route identity.
++   */
++  explicit MotoModel(MotoConfig config = {}, std::uint32_t seed = 1) noexcept : config_(config), track_(seed) {
++  }
++
++  /** @param beta Device X rotation in finite radians.
++   * @param gamma Device Y rotation in finite radians.
++   * @param angle Screen orientation in degrees: 0, 90, 180 or 270.
++   * @param now Original JS arrival timestamp in monotonic milliseconds.
++   * Malformed or out-of-order input is ignored; no borrowed values survive.
++   */
++  void sample(double beta, double gamma, int angle, double now) noexcept {
++    if (!validTime(now) || !std::isfinite(beta) || !std::isfinite(gamma) || (angle != 0 && angle != 90 && angle != 180 && angle != 270) || (hasSample_ && now <= sampleAt_)) {
++      return;
++    }
++
++    const double previousAt = sampleAt_;
++    const bool hadSample = hasSample_;
++
++    if (hadSample && angle != angle_) {
++      neutralValid_ = false;
++      clearWindow();
++
++      if (state_ != MotoState::READY) {
++        pause("Screen turned; recalibrate");
++      }
++    }
++
++    beta_ = std::remainder(beta, TWO_PI);
++    gamma_ = std::remainder(gamma, TWO_PI);
++    angle_ = angle;
++    sampleAt_ = now;
++    hasSample_ = true;
++    sensorReady_ = true;
++    sensorState_ = 3;
++    now_ = std::max(now_, now);
++
++    if (state_ == MotoState::SETTLING && now >= collectAfter_) {
++      state_ = MotoState::COLLECTING;
++    }
++
++    if (state_ == MotoState::COLLECTING && !gasHeld_ && !brakeHeld_) {
++      collect(now);
++    }
++
++    if (neutralValid_) {
++      updateControls(hadSample ? now - previousAt : 0);
++    }
++  }
++
++  /** @param gas True while any pointer owns the gas zone.
++   * @param brake True while any pointer owns the brake zone.
++   * @param now Timestamp in the same clock domain as sample().
++   */
++  void controls(bool gas, bool brake, double now) noexcept {
++    if (!validTime(now)) {
++      return;
++    }
++
++    now_ = std::max(now_, now);
++    gasHeld_ = gas;
++    brakeHeld_ = brake;
++
++    if ((gas || brake) && (state_ == MotoState::SETTLING || state_ == MotoState::COLLECTING)) {
++      restartWindow(now);
++    }
++  }
++
++  /** @param action Validated intent from the host.
++   * @param now Monotonic timestamp, in milliseconds.
++   */
++  void action(MotoAction action, double now) noexcept {
++    if (!validTime(now)) {
++      return;
++    }
++
++    now_ = std::max(now_, now);
++
++    switch (action) {
++    case MotoAction::PRESS:
++      if (state_ == MotoState::READY) {
++        beginHold(MotoState::READY);
++      }
++
++      break;
++    case MotoAction::RECALIBRATE:
++      if (state_ == MotoState::PAUSED) {
++        beginHold(MotoState::PAUSED);
++      }
++
++      break;
++    case MotoAction::RELEASE:
++      if (state_ == MotoState::HELD) {
++        releasedAt_ = now;
++        restartWindow(now);
++      }
++
++      break;
++    case MotoAction::CANCEL:
++      if (state_ == MotoState::HELD || state_ == MotoState::SETTLING || state_ == MotoState::COLLECTING) {
++        state_ = holdOrigin_;
++        clearWindow();
++        message_ = state_ == MotoState::READY ? "Hold Start, then release" : "Paused";
++      }
++
++      break;
++    case MotoAction::PAUSE:
++      pause("Paused");
++
++      break;
++    case MotoAction::CONTINUE:
++      if (canResume(now)) {
++        beginCountdown(now);
++      }
++
++      break;
++    case MotoAction::RESTART:
++      restart();
++
++      break;
++    }
++  }
++
++  /** @param state Zero unavailable, one waiting, two paused.
++   * Clear prior freshness until an actual new sample arrives.
++   */
++  void sensorState(int state) noexcept {
++    if (state < 0 || state > 2) {
++      return;
++    }
++
++    sensorState_ = state;
++    sensorReady_ = false;
++    filtered_ = false;
++    clearHolds();
++
++    if (state_ != MotoState::READY) {
++      pause(state == 0 ? "Sensor unavailable" : state == 2 ? "Paused"
++                                                           : "Waiting for sensor");
++    }
++  }
++
++  /** @param seed New route seed, accepted only in READY. */
++  void seed(std::uint32_t seed) noexcept {
++    if (state_ == MotoState::READY) {
++      track_.reset(seed);
++    }
++  }
++
++  /** @param now Latest host frame time; monotonically nondecreasing, milliseconds.
++   * Executes bounded fixed steps. A long frame gap pauses instead of catching up forever.
++   */
++  void advance(double now) noexcept {
++    if (!validTime(now) || (hasTick_ && now < lastTick_)) {
++      return;
++    }
++
++    now_ = std::max(now_, now);
++    const double elapsed = hasTick_ ? now - lastTick_ : 0;
++
++    hasTick_ = true;
++    lastTick_ = now;
++    lastSteps_ = 0;
++
++    if ((state_ == MotoState::SETTLING || state_ == MotoState::COLLECTING) && now - releasedAt_ > config_.preparationTimeoutMs) {
++      pause("Not stable; recalibrate");
++    }
++
++    if (state_ != MotoState::COUNTDOWN && state_ != MotoState::RACING) {
++      return;
++    }
++
++    if (!fresh(now)) {
++      pause("Sensor stale; continue when ready");
++
++      return;
++    }
++
++    if (elapsed > config_.physicsStepMs * config_.maxCatchupSteps) {
++      pause("Frame gap; press Continue");
++
++      return;
++    }
++
++    if (state_ == MotoState::COUNTDOWN) {
++      if (now >= raceAt_) {
++        state_ = MotoState::RACING;
++        accumulatorMs_ = 0;
++        message_ = "Tilt to steer; lean away for gas";
++      }
++
++      return;
++    }
++
++    accumulatorMs_ += elapsed;
++
++    while (accumulatorMs_ + 0.000001 >= config_.physicsStepMs && lastSteps_ < config_.maxCatchupSteps) {
++      simulate(config_.physicsStepMs / 1000);
++      accumulatorMs_ -= config_.physicsStepMs;
++      ++lastSteps_;
++    }
++  }
++
++  /** @param now Candidate resume timestamp, milliseconds.
++   * @return True only for a paused race with matching neutral, fresh sensor and released pedals.
++   */
++  bool canResume(double now) const noexcept {
++    return state_ == MotoState::PAUSED && neutralValid_ && neutralAngle_ == angle_ && fresh(now) && !gasHeld_ && !brakeHeld_;
++  }
++
++  /** @return Current ABI state. */
++  MotoState state() const noexcept {
++    return state_;
++  }
++
++  /** @return Current short presentation hint; static storage only. */
++  std::string_view message() const noexcept {
++    if (state_ == MotoState::READY && !sensorReady_) {
++      return sensorState_ == 0 ? "Sensor unavailable" : "Waiting for sensor";
++    }
++
++    return message_;
++  }
++
++  /** @return Forward speed in metres per second. */
++  double speed() const noexcept {
++    return speed_;
++  }
++
++  /** @return Absolute travelled distance in metres. */
++  double distance() const noexcept {
++    return distance_;
++  }
++
++  /** @return Signed lateral offset from the road centre in metres. */
++  double lateral() const noexcept {
++    return lateral_;
++  }
++
++  /** @return Normalized left/right command in [-1,1]. */
++  double steering() const noexcept {
++    return steering_;
++  }
++
++  /** @return Normalized gas in [0,1], with brake priority. */
++  double gas() const noexcept {
++    return brake() > 0 ? 0 : std::max(gasHeld_ ? 1.0 : 0.0, tiltGas_);
++  }
++
++  /** @return Normalized brake in [0,1]. */
++  double brake() const noexcept {
++    return std::max(brakeHeld_ ? 1.0 : 0.0, tiltBrake_);
++  }
++
++  /** @return Whether the calibration reference still matches the current axes. */
++  bool neutralValid() const noexcept {
++    return neutralValid_;
++  }
++
++  /** @return Stable window progress in [0,1]. */
++  double calibrationProgress() const noexcept {
++    return windowCount_ == 0 ? 0 : std::clamp((windowLastAt_ - windowFirstAt_) / config_.stableMs, 0.0, 1.0);
++  }
++
++  /** @return Last host frame's fixed simulation step count. */
++  unsigned lastSteps() const noexcept {
++    return lastSteps_;
++  }
++
++  /** @return Borrowed track cache, valid through this model's lifetime. */
++  const MotoTrack &track() const noexcept {
++    return track_;
++  }
++
++private:
++  static constexpr double TWO_PI = 2 * std::numbers::pi;
++  static constexpr double DEGREES = 180 / std::numbers::pi;
++  static constexpr std::size_t WINDOW_CAPACITY = 128;
++  static constexpr double MAX_DISTANCE = 1.0e12;
++
++  static bool validTime(double now) noexcept {
++    return std::isfinite(now) && now >= 0;
++  }
++
++  bool fresh(double now) const noexcept {
++    return validTime(now) && sensorReady_ && hasSample_ && now >= sampleAt_ && now - sampleAt_ <= config_.staleMs;
++  }
++
++  void clearHolds() noexcept {
++    gasHeld_ = false;
++    brakeHeld_ = false;
++  }
++
++  void clearWindow() noexcept {
++    windowCount_ = 0;
++    windowFirstAt_ = 0;
++    windowLastAt_ = 0;
++  }
++
++  void beginHold(MotoState origin) noexcept {
++    holdOrigin_ = origin;
++    state_ = MotoState::HELD;
++    clearWindow();
++    message_ = "Release Start and hold phone still";
++  }
++
++  void restartWindow(double now) noexcept {
++    clearWindow();
++    collectAfter_ = now + config_.settleMs;
++    state_ = MotoState::SETTLING;
++    message_ = "Let the press settle; hold still";
++  }
++
++  void collect(double now) noexcept {
++    const double candidateBeta = windowCount_ == 0 ? beta_ : windowAnchorBeta_ + std::remainder(beta_ - windowAnchorBeta_, TWO_PI);
++    const double candidateGamma = windowCount_ == 0 ? gamma_ : windowAnchorGamma_ + std::remainder(gamma_ - windowAnchorGamma_, TWO_PI);
++
++    if (windowCount_ == 0) {
++      windowAnchorBeta_ = beta_;
++      windowAnchorGamma_ = gamma_;
++      windowMinBeta_ = windowMaxBeta_ = candidateBeta;
++      windowMinGamma_ = windowMaxGamma_ = candidateGamma;
++      windowFirstAt_ = now;
++      windowSumBeta_ = 0;
++      windowSumGamma_ = 0;
++    } else {
++      const double gap = now - windowLastAt_;
++      const double rate = std::max(std::abs(candidateBeta - windowLastBeta_), std::abs(candidateGamma - windowLastGamma_)) * DEGREES * 1000 / gap;
++      const double range = std::max(std::max(windowMaxBeta_, candidateBeta) - std::min(windowMinBeta_, candidateBeta),
++                                    std::max(windowMaxGamma_, candidateGamma) - std::min(windowMinGamma_, candidateGamma))
++        * DEGREES;
++
++      if (gap > config_.sampleGapMs || rate > config_.stableRateDegrees || range > config_.stableRangeDegrees || windowCount_ >= WINDOW_CAPACITY) {
++        restartWindow(now);
++
++        return;
++      }
++    }
++
++    windowMinBeta_ = std::min(windowMinBeta_, candidateBeta);
++    windowMaxBeta_ = std::max(windowMaxBeta_, candidateBeta);
++    windowMinGamma_ = std::min(windowMinGamma_, candidateGamma);
++    windowMaxGamma_ = std::max(windowMaxGamma_, candidateGamma);
++    windowLastBeta_ = candidateBeta;
++    windowLastGamma_ = candidateGamma;
++    windowLastAt_ = now;
++    windowSumBeta_ += candidateBeta;
++    windowSumGamma_ += candidateGamma;
++    ++windowCount_;
++    message_ = "Measuring a stable neutral pose";
++
++    if (windowCount_ >= std::max<std::size_t>(3, config_.stableSamples) && now - windowFirstAt_ >= config_.stableMs) {
++      // The strict range/rate checks reject motion; trimming the two extremes limits small outliers.
++      const double retainedCount = static_cast<double>(windowCount_ - 2);
++
++      neutralBeta_ = std::remainder((windowSumBeta_ - windowMinBeta_ - windowMaxBeta_) / retainedCount, TWO_PI);
++      neutralGamma_ = std::remainder((windowSumGamma_ - windowMinGamma_ - windowMaxGamma_) / retainedCount, TWO_PI);
++      neutralAngle_ = angle_;
++      neutralValid_ = true;
++      beginCountdown(now);
++    }
++  }
++
++  static double command(double degrees, double fullScale, double deadzone) noexcept {
++    const double magnitude = std::abs(degrees);
++
++    if (magnitude <= deadzone) {
++      return 0;
++    }
++
++    return std::copysign(std::clamp((magnitude - deadzone) / (fullScale - deadzone), 0.0, 1.0), degrees);
++  }
++
++  void updateControls(double dt) noexcept {
++    const double deviceX = std::remainder(gamma_ - neutralGamma_, TWO_PI) * DEGREES;
++    const double deviceY = std::remainder(beta_ - neutralBeta_, TWO_PI) * DEGREES;
++    double x = deviceX;
++    double y = deviceY;
++
++    if (angle_ == 90) {
++      x = deviceY;
++      y = -deviceX;
++    } else if (angle_ == 180) {
++      x = -deviceX;
++      y = -deviceY;
++    } else if (angle_ == 270) {
++      x = -deviceY;
++      y = deviceX;
++    }
++
++    const double weight = !filtered_ || dt <= 0 ? 1 : 1 - std::exp(-dt / config_.smoothingMs);
++
++    filteredX_ += weight * (x - filteredX_);
++    filteredY_ += weight * (y - filteredY_);
++    filtered_ = true;
++    steering_ = command(filteredX_, config_.steeringDegrees, config_.deadzoneDegrees);
++    const double pedal = command(filteredY_, config_.pedalDegrees, config_.deadzoneDegrees);
++
++    tiltGas_ = std::max(0.0, pedal);
++    tiltBrake_ = std::max(0.0, -pedal);
++  }
++
++  void beginCountdown(double now) noexcept {
++    clearHolds();
++    state_ = MotoState::COUNTDOWN;
++    raceAt_ = now + config_.countdownMs;
++    accumulatorMs_ = 0;
++    filtered_ = false;
++    filteredX_ = filteredY_ = 0;
++    steering_ = tiltGas_ = tiltBrake_ = 0;
++    message_ = "Neutral locked; get ready";
++  }
++
++  void pause(std::string_view message) noexcept {
++    state_ = MotoState::PAUSED;
++    clearHolds();
++    clearWindow();
++    accumulatorMs_ = 0;
++    filtered_ = false;
++    steering_ = tiltGas_ = tiltBrake_ = 0;
++    message_ = message;
++  }
++
++  void restart() noexcept {
++    state_ = MotoState::READY;
++    clearHolds();
++    clearWindow();
++    neutralValid_ = false;
++    filtered_ = false;
++    steering_ = tiltGas_ = tiltBrake_ = 0;
++    speed_ = distance_ = lateral_ = accumulatorMs_ = 0;
++    track_.reset(track_.seed());
++    message_ = "Hold Start, then release";
++  }
++
++  void simulate(double seconds) noexcept {
++    const double oldCenter = track_.centerAt(distance_);
++    const double drag = 0.6 + speed_ * 0.04;
++
++    speed_ = std::clamp(speed_ + (gas() * config_.acceleration - brake() * config_.braking - drag) * seconds, 0.0, config_.maxSpeed);
++    distance_ = std::min(MAX_DISTANCE, distance_ + speed_ * seconds);
++    lateral_ += steering_ * (2 + speed_ * 0.2) * seconds - (track_.centerAt(distance_) - oldCenter);
++    lateral_ = std::clamp(lateral_, -config_.roadHalfWidth * 2, config_.roadHalfWidth * 2);
++
++    if (std::abs(lateral_) > config_.roadHalfWidth) {
++      speed_ = std::max(0.0, speed_ - config_.braking * seconds * 0.4);
++    }
++
++    track_.refresh(distance_);
++  }
++
++  MotoConfig config_;
++  MotoTrack track_;
++  MotoState state_{MotoState::READY};
++  MotoState holdOrigin_{MotoState::READY};
++  std::string_view message_{"Hold Start, then release"};
++  double now_{}, sampleAt_{}, lastTick_{}, releasedAt_{}, collectAfter_{}, raceAt_{};
++  double beta_{}, gamma_{}, neutralBeta_{}, neutralGamma_{}, filteredX_{}, filteredY_{};
++  double steering_{}, tiltGas_{}, tiltBrake_{}, speed_{}, distance_{}, lateral_{}, accumulatorMs_{};
++  double windowAnchorBeta_{}, windowAnchorGamma_{}, windowMinBeta_{}, windowMaxBeta_{}, windowMinGamma_{}, windowMaxGamma_{};
++  double windowFirstAt_{}, windowLastAt_{}, windowLastBeta_{}, windowLastGamma_{}, windowSumBeta_{}, windowSumGamma_{};
++  std::size_t windowCount_{};
++  unsigned lastSteps_{};
++  int angle_{}, neutralAngle_{}, sensorState_{1};
++  bool gasHeld_{}, brakeHeld_{}, hasSample_{}, hasTick_{}, sensorReady_{}, neutralValid_{}, filtered_{};
++};
++} // namespace wasm_gallery
+--- /dev/null
++++ b/examples/wasm_gallery/moto_scene.hpp
+@@ -0,0 +1,231 @@
++// Copyright (c) 2026 ttldtor. SPDX-License-Identifier: BSL-1.0
++#pragma once
++
++#include "../gallery/settings.hpp"
++#include "moto_model.hpp"
++#include "sample_theme.hpp"
++#include <array>
++#include <format>
++#include <string>
++
++namespace wasm_gallery {
++/** @brief Stationary fluent Moto scene; host input never mutates widgets or runtime lifecycle. */
++class MotoScene {
++public:
++  /** @param options Borrowed settings, alive through scene destruction.
++   * @param theme Borrowed shared preset index, alive through scene destruction.
++   */
++  MotoScene(portals::ui::OptionsRef<example::Options> options, std::size_t &theme)
++      : theme_(theme), scene_(portals::ui::scene([this](portals::ManagedScene &, portals::Application &) {
++          return recipe();
++        })) {
++    using namespace portals;
++
++    scene_.applicationOptions([options] {
++      ApplicationOptions result;
++
++      result.writer.colorMode = options.get().ansi16 ? ColorMode::ANSI16 : ColorMode::TRUE_COLOR;
++      // The runtime rounds to whole milliseconds: a 17 ms cap permits every second 60 Hz host tick.
++      result.framesPerSecond = PRESENTATION_FPS_CAP;
++
++      return result;
++    });
++    scene_.configure([this](ManagedScene &owner, Application &app) {
++      owner_ = &owner;
++      app_ = &app;
++      applyTheme();
++
++      const AxisSize fixed{.preferred = 1, .mode = SizeMode::FIXED};
++      GridOptions grid;
++
++      grid.columns = {AxisSize{.mode = SizeMode::FLEX}};
++      grid.rows = {fixed, AxisSize{.mode = SizeMode::FLEX}};
++      grid.cells = {{title_.node().id(), 0, 0}, {body_.node().id(), 1, 0}};
++      example::take(setGridOptions(app.tree(), grid_.node(), grid));
++      example::take(app.router().setFocus(themeButton_.node()));
++      paint();
++    });
++    scene_.onKey("F2", [this] {
++      changeTheme();
++    });
++    scene_.onKey("F10 | Ctrl+C", ui::quit);
++  }
++
++  MotoScene(const MotoScene &) = delete;
++  MotoScene &operator=(const MotoScene &) = delete;
++  MotoScene(MotoScene &&) = delete;
++  MotoScene &operator=(MotoScene &&) = delete;
++
++  /** @return Borrowed facade, valid while this scene owner is alive. */
++  portals::ui::Scene &scene() noexcept {
++    return scene_;
++  }
++
++  /** @param beta Device pitch in radians.
++   * @param gamma Device roll in radians.
++   * @param angle Quarter-turn screen angle in degrees.
++   * @param now JS receive time in monotonic milliseconds.
++   */
++  void sample(double beta, double gamma, int angle, double now) noexcept {
++    model_.sample(beta, gamma, angle, now);
++  }
++
++  /** @param gas Whether the host gas zone is held.
++   * @param brake Whether the host brake zone is held.
++   * @param now JS event time in monotonic milliseconds.
++   */
++  void controls(bool gas, bool brake, double now) noexcept {
++    model_.controls(gas, brake, now);
++  }
++
++  /** @param action Validated host intent.
++   * @param now JS event time in monotonic milliseconds.
++   */
++  void action(MotoAction action, double now) noexcept {
++    model_.action(action, now);
++  }
++
++  /** @param now Latest host frame time in monotonic milliseconds; retained until beforeStep. */
++  void tick(double now) noexcept {
++    if (std::isfinite(now) && now >= tickAt_) {
++      tickAt_ = now;
++    }
++  }
++
++  /** @param state Zero unavailable, one waiting, two paused. */
++  void sensorState(int state) noexcept {
++    model_.sensorState(state);
++  }
++
++  /** @param seed Versioned 32-bit route identity, accepted only while READY. */
++  void seed(std::uint32_t seed) noexcept {
++    model_.seed(seed);
++  }
++
++  /** @return Current host ABI state. */
++  int state() const noexcept {
++    return static_cast<int>(model_.state());
++  }
++
++  /** @return Whether Continue is valid at the last retained host clock time. */
++  bool canResume() const noexcept {
++    return model_.canResume(tickAt_);
++  }
++
++  /** @brief Advance the owning model and update labels outside runtime callbacks/frames. */
++  void beforeStep() {
++    model_.advance(tickAt_);
++
++    if (app_) {
++      // The existing runtime owns the frame cap; cached labels avoid idle invalidation.
++      paint();
++    }
++  }
++
++private:
++  static constexpr std::uint32_t PRESENTATION_FPS_CAP = 60;
++  static constexpr int ROAD_COLUMNS = 30;
++  static constexpr int ROAD_ROWS = 12;
++  static constexpr double LOOKAHEAD_METRES = 96;
++  static constexpr double NEAR_METRES = 3;
++  static constexpr double HORIZON_COLUMNS = 4;
++  static constexpr double NEAR_COLUMNS = 26;
++  static constexpr double ROAD_METRES = 8;
++  static constexpr double DASH_PERIOD_METRES = 12;
++  static constexpr double DASH_LENGTH_METRES = 6;
++
++  portals::ui::Description<portals::Grid> recipe() {
++    using namespace portals;
++
++    auto actions = ui::hbox(
++      ui::button(themeButton_, "Theme F2", [this] {
++        changeTheme();
++      }),
++      ui::button("Quit F10", [] {
++        ui::quit();
++      }));
++    auto road = ui::vbox(
++      ui::label(road_[0], ""), ui::label(road_[1], ""), ui::label(road_[2], ""),
++      ui::label(road_[3], ""), ui::label(road_[4], ""), ui::label(road_[5], ""),
++      ui::label(road_[6], ""), ui::label(road_[7], ""), ui::label(road_[8], ""),
++      ui::label(road_[9], ""), ui::label(road_[10], ""), ui::label(road_[11], ""));
++    auto body = ui::vbox(body_, std::move(actions), ui::label(hud_, ""),
++                         ui::label(seedLabel_, ""), std::move(road),
++                         ui::label(mode_, "READY"), ui::label(status_, ""));
++
++    return ui::grid(grid_, ui::label(title_, " Moto race").id("moto-title"), std::move(body));
++  }
++
++  void applyTheme() {
++    example::take(owner_->theme(sampleTheme(theme_, "moto-title")));
++  }
++
++  void changeTheme() {
++    theme_ = (theme_ + 1) % example::THEME_PRESETS.size();
++    applyTheme();
++  }
++
++  void setText(portals::ui::Ref<portals::Label> &label, std::string value, std::string &previous) {
++    value.resize(std::min(value.size(), static_cast<std::size_t>(ROAD_COLUMNS)));
++
++    if (value != previous) {
++      example::take(portals::setControlText(app_->tree(), label.node(), example::text(value, app_->widthPolicy())));
++      previous = std::move(value);
++    }
++  }
++
++  void paint() {
++    static constexpr std::array<std::string_view, 7> STATES{"READY", "HELD", "SETTLING", "COLLECTING", "COUNTDOWN", "RACING", "PAUSED"};
++
++    setText(hud_, std::format("{:3.0f} km/h    {:6.2f} km", model_.speed() * 3.6, model_.distance() / 1000), hudText_);
++    setText(seedLabel_, std::format("Seed {}  route v{}", model_.track().seed(), MotoTrack::GENERATOR_VERSION), seedText_);
++    setText(mode_, std::format("{}  {:3.0f}%", STATES[static_cast<std::size_t>(model_.state())], model_.calibrationProgress() * 100), modeText_);
++    setText(status_, std::string(model_.message()), statusText_);
++
++    const double currentCenter = model_.track().centerAt(model_.distance());
++
++    for (int row = 0; row < ROAD_ROWS; ++row) {
++      const double depth = static_cast<double>(row) / (ROAD_ROWS - 1);
++      const double ahead = LOOKAHEAD_METRES * (1 - depth) + NEAR_METRES;
++      const double width = HORIZON_COLUMNS + depth * (NEAR_COLUMNS - HORIZON_COLUMNS);
++      const double center = ROAD_COLUMNS / 2.0 + (model_.track().centerAt(model_.distance() + ahead) - currentCenter - model_.lateral()) * width / ROAD_METRES;
++      const int left = static_cast<int>(std::lround(center - width / 2));
++      const int right = static_cast<int>(std::lround(center + width / 2));
++      const int middle = static_cast<int>(std::lround(center));
++      std::string line(ROAD_COLUMNS, '.');
++
++      for (int column = 0; column < ROAD_COLUMNS; ++column) {
++        if (column > left && column < right) {
++          line[static_cast<std::size_t>(column)] = ' ';
++        }
++
++        if (column == left || column == right) {
++          line[static_cast<std::size_t>(column)] = '|';
++        } else if (column == middle && std::fmod(model_.distance() + ahead, DASH_PERIOD_METRES) < DASH_LENGTH_METRES) {
++          line[static_cast<std::size_t>(column)] = ':';
++        }
++      }
++
++      if (row == ROAD_ROWS - 2 || row == ROAD_ROWS - 1) {
++        line[ROAD_COLUMNS / 2] = row == ROAD_ROWS - 2 ? '^' : 'O';
++      }
++
++      setText(road_[static_cast<std::size_t>(row)], std::move(line), roadText_[static_cast<std::size_t>(row)]);
++    }
++  }
++
++  std::size_t &theme_;
++  MotoModel model_;
++  portals::ui::Ref<portals::Grid> grid_;
++  portals::ui::Ref<portals::Column> body_;
++  portals::ui::Ref<portals::Label> title_, hud_, seedLabel_, mode_, status_;
++  std::array<portals::ui::Ref<portals::Label>, ROAD_ROWS> road_;
++  portals::ui::Ref<portals::Button> themeButton_;
++  portals::ManagedScene *owner_{};
++  portals::Application *app_{};
++  std::string hudText_, seedText_, modeText_, statusText_;
++  std::array<std::string, ROAD_ROWS> roadText_;
++  double tickAt_{};
++  portals::ui::Scene scene_;
++};
++} // namespace wasm_gallery
+--- /dev/null
++++ b/examples/wasm_gallery/moto_model_tests.cpp
+@@ -0,0 +1,282 @@
++// Copyright (c) 2026 ttldtor. SPDX-License-Identifier: BSL-1.0
++// Built as portals_moto_model_tests; finite doctest scenarios require no UI or sensor.
++#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
++#include "../../vendor/doctest/doctest.h"
++#include "moto_model.hpp"
++#include <limits>
++
++using namespace wasm_gallery;
++
++namespace {
++constexpr double RADIAN = std::numbers::pi / 180;
++
++void frames(MotoModel &model, int first, int last, double beta = 0, double gamma = 0, int angle = 0) {
++  for (int now = first; now <= last; now += 10) {
++    if (now % 50 == 0) {
++      model.sample(beta, gamma, angle, now);
++    }
++
++    model.advance(now);
++  }
++}
++
++void calibrated(MotoModel &model, double beta = 0, double gamma = 0, int angle = 0) {
++  model.sample(beta, gamma, angle, 0);
++  model.action(MotoAction::PRESS, 10);
++  model.action(MotoAction::RELEASE, 20);
++  frames(model, 30, 900, beta, gamma, angle);
++  REQUIRE(model.state() == MotoState::COUNTDOWN);
++  REQUIRE(model.neutralValid());
++}
++
++void racing(MotoModel &model, double beta = 0, double gamma = 0, int angle = 0) {
++  calibrated(model, beta, gamma, angle);
++  frames(model, 910, 2400, beta, gamma, angle);
++  REQUIRE(model.state() == MotoState::RACING);
++}
++} // namespace
++
++TEST_CASE("press impulse is excluded and a stable post-release window locks neutral") {
++  MotoModel model;
++
++  model.sample(0, 0, 0, 0);
++  model.action(MotoAction::PRESS, 10);
++  model.sample(50 * RADIAN, 40 * RADIAN, 0, 15);
++  frames(model, 20, 200, 50 * RADIAN, 40 * RADIAN);
++  CHECK(model.state() == MotoState::HELD);
++  CHECK_FALSE(model.neutralValid());
++  model.action(MotoAction::RELEASE, 210);
++  frames(model, 220, 1050);
++  CHECK(model.state() == MotoState::COLLECTING);
++  CHECK_FALSE(model.neutralValid());
++  frames(model, 1060, 1100);
++  CHECK(model.state() == MotoState::COUNTDOWN);
++  CHECK(model.neutralValid());
++  CHECK(model.steering() == doctest::Approx(0));
++  CHECK(model.gas() == doctest::Approx(0));
++}
++
++TEST_CASE("sparse arrivals and repeated timestamps cannot manufacture stable time") {
++  MotoModel model;
++
++  model.action(MotoAction::PRESS, 0);
++  model.action(MotoAction::RELEASE, 1);
++
++  for (int now = 300; now < 3000; now += 200) {
++    model.sample(0, 0, 0, now);
++    model.sample(0, 0, 0, now);
++    model.advance(now);
++  }
++
++  CHECK_FALSE(model.neutralValid());
++  CHECK(model.state() != MotoState::COUNTDOWN);
++}
++
++TEST_CASE("movement and held pedals restart the stable window") {
++  MotoModel model;
++
++  model.action(MotoAction::PRESS, 0);
++  model.action(MotoAction::RELEASE, 1);
++  frames(model, 10, 700);
++  REQUIRE(model.state() == MotoState::COLLECTING);
++  model.sample(10 * RADIAN, 0, 0, 710);
++  CHECK(model.state() == MotoState::SETTLING);
++  CHECK_FALSE(model.neutralValid());
++  frames(model, 720, 1200);
++  model.controls(true, false, 1210);
++  frames(model, 1220, 2000);
++  CHECK_FALSE(model.neutralValid());
++  model.controls(false, false, 2010);
++  frames(model, 2020, 2900);
++  CHECK(model.neutralValid());
++}
++
++TEST_CASE("a pedal held before Start remains held through preparation") {
++  MotoModel model;
++
++  model.controls(true, false, 0);
++  model.action(MotoAction::PRESS, 10);
++  model.action(MotoAction::RELEASE, 20);
++  frames(model, 30, 900);
++  CHECK_FALSE(model.neutralValid());
++  CHECK(model.state() != MotoState::COUNTDOWN);
++  model.controls(false, false, 910);
++  frames(model, 920, 1900);
++  CHECK(model.neutralValid());
++  CHECK(model.state() == MotoState::COUNTDOWN);
++}
++
++TEST_CASE("first-start interruption cannot resume without neutral") {
++  MotoModel model;
++
++  model.sample(0, 0, 0, 0);
++  model.action(MotoAction::PRESS, 10);
++  model.action(MotoAction::RELEASE, 20);
++  model.action(MotoAction::PAUSE, 100);
++  model.sample(0, 0, 0, 110);
++  CHECK_FALSE(model.canResume(110));
++  model.action(MotoAction::CONTINUE, 110);
++  CHECK(model.state() == MotoState::PAUSED);
++  model.action(MotoAction::RECALIBRATE, 120);
++  model.action(MotoAction::CANCEL, 130);
++  CHECK(model.state() == MotoState::PAUSED);
++  CHECK_FALSE(model.neutralValid());
++}
++
++TEST_CASE("pause clears holds and cancelled recalibration preserves the race") {
++  MotoModel model;
++
++  racing(model);
++  model.controls(true, false, 2401);
++  frames(model, 2410, 3000);
++  const double distance = model.distance();
++
++  REQUIRE(distance > 0);
++  model.action(MotoAction::PAUSE, 3001);
++  CHECK(model.gas() == 0);
++  model.action(MotoAction::RECALIBRATE, 3010);
++  model.sample(0, 0, 0, 3020);
++  model.action(MotoAction::CANCEL, 3030);
++  CHECK(model.state() == MotoState::PAUSED);
++  CHECK(model.distance() == distance);
++  CHECK(model.neutralValid());
++  CHECK(model.canResume(3030));
++  model.controls(true, false, 3031);
++  CHECK_FALSE(model.canResume(3031));
++  model.controls(false, false, 3032);
++  model.action(MotoAction::CONTINUE, 3032);
++  CHECK(model.state() == MotoState::COUNTDOWN);
++}
++
++TEST_CASE("neutral remains fixed while steering and wrap uses the short angular delta") {
++  MotoModel model;
++
++  racing(model, 179 * RADIAN, 0);
++  frames(model, 2410, 3500, -179 * RADIAN, 20 * RADIAN);
++  CHECK(model.state() == MotoState::RACING);
++  CHECK(model.steering() > 0.7);
++  CHECK(model.gas() < 0.1);
++  frames(model, 3510, 5000, 179 * RADIAN, 0);
++  CHECK(std::abs(model.steering()) < 0.001);
++  CHECK(model.neutralValid());
++}
++
++TEST_CASE("screen axes are compensated and rotating invalidates the old neutral") {
++  MotoModel model;
++
++  racing(model, 0, 0, 90);
++  frames(model, 2410, 3000, 20 * RADIAN, 0, 90);
++  CHECK(model.steering() > 0.7);
++  model.sample(0, 0, 180, 3010);
++  CHECK(model.state() == MotoState::PAUSED);
++  CHECK_FALSE(model.neutralValid());
++  CHECK_FALSE(model.canResume(3010));
++}
++
++TEST_CASE("stale sensor and long frames pause with bounded catch-up") {
++  MotoModel model;
++
++  racing(model);
++  model.controls(true, false, 2401);
++  frames(model, 2410, 2600);
++  model.advance(2851);
++  CHECK(model.state() == MotoState::PAUSED);
++  CHECK(model.gas() == 0);
++  CHECK(model.lastSteps() == 0);
++  model.sample(0, 0, 0, 2860);
++  CHECK(model.canResume(2860));
++  model.action(MotoAction::CONTINUE, 2860);
++  model.advance(2860);
++  model.sample(0, 0, 0, 4000);
++  model.advance(4000);
++  CHECK(model.state() == MotoState::PAUSED);
++  CHECK(model.lastSteps() == 0);
++}
++
++TEST_CASE("brake wins over touch gas and tilt gas") {
++  MotoModel model;
++
++  racing(model);
++  frames(model, 2410, 2800, 25 * RADIAN, 0);
++  REQUIRE(model.gas() > 0.9);
++  model.controls(true, true, 2801);
++  CHECK(model.gas() == 0);
++  CHECK(model.brake() == 1);
++  model.controls(true, false, 2802);
++  CHECK(model.gas() == 1);
++  model.controls(false, false, 2803);
++  CHECK(model.gas() > 0.9);
++}
++
++TEST_CASE("time-based smoothing gives the same response at 20 and 50 millisecond sample intervals") {
++  MotoModel fast, slow;
++
++  racing(fast);
++  racing(slow);
++
++  for (int now = 2420; now <= 2700; now += 20) {
++    fast.sample(0, 25 * RADIAN, 0, now);
++  }
++
++  for (int now = 2450; now <= 2700; now += 50) {
++    slow.sample(0, 25 * RADIAN, 0, now);
++  }
++
++  CHECK(fast.steering() > 0.97);
++  CHECK(fast.steering() == doctest::Approx(slow.steering()).epsilon(0.001));
++}
++
++TEST_CASE("malformed samples cannot create a calibration or alter valid controls") {
++  MotoModel model;
++
++  racing(model);
++  model.sample(std::numeric_limits<double>::quiet_NaN(), 1, 0, 2410);
++  model.sample(0, std::numeric_limits<double>::infinity(), 0, 2420);
++  model.sample(0, 0, 45, 2430);
++  model.sample(0, 0, 0, -1);
++  CHECK(model.steering() == 0);
++  CHECK(model.neutralValid());
++  CHECK(model.state() == MotoState::RACING);
++}
++
++TEST_CASE("route identity and smooth joins do not depend on cache or seed-setting time") {
++  MotoTrack first(1234), second(1234), other(4567);
++
++  for (int index = 0; index < 1000; ++index) {
++    first.refresh(index * 100);
++    CHECK(first.storedSegments() == MotoTrack::CAPACITY);
++  }
++
++  for (int index = 0; index < 100; ++index) {
++    const double distance = index * 23.75;
++
++    CHECK(first.centerAt(distance) == second.centerAt(distance));
++    CHECK(first.segmentCenter(index) == second.segmentCenter(index));
++  }
++
++  CHECK(first.centerAt(100) != other.centerAt(100));
++  const double center = first.centerAt(64);
++  const double leftRate = (center - first.centerAt(63.999)) / 0.001;
++  const double rightRate = (first.centerAt(64.001) - center) / 0.001;
++
++  CHECK(std::abs(leftRate - rightRate) < 0.00001);
++}
++
++TEST_CASE("restart preserves seed while resetting progress and allowing a new seed") {
++  MotoModel model({}, 42);
++
++  racing(model);
++  model.seed(100);
++  CHECK(model.track().seed() == 42);
++  model.controls(true, false, 2401);
++  frames(model, 2410, 3000);
++  REQUIRE(model.distance() > 0);
++  model.action(MotoAction::RESTART, 3010);
++  CHECK(model.state() == MotoState::READY);
++  CHECK(model.distance() == 0);
++  CHECK(model.speed() == 0);
++  CHECK_FALSE(model.neutralValid());
++  CHECK(model.track().seed() == 42);
++  model.seed(100);
++  CHECK(model.track().seed() == 100);
++}

@@ -4,14 +4,27 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Portals WASM gallery</title>
-  <link rel="stylesheet" href="./main.css?v=aa53d7a58adb2ee6b76ca940fc7c7972fb2e48365c37ae8ed82e33f75541c88a">
+  <link rel="stylesheet" href="./main.css?v=c54cda3e54c15f43b213690dc89020f4430d155f21353195f0082a6cfa80c89f">
   <script src="https://telegram.org/js/telegram-web-app.js?64"></script>
 </head>
 <body>
   <header><h1>Portals gallery</h1><p>WebAssembly · xterm.js</p><p id="environment">Loading…</p></header>
-  <nav aria-label="Applications"><button type="button" data-app="gallery" aria-pressed="true" disabled>Gallery</button><button type="button" data-app="level" aria-pressed="false" disabled>Level</button></nav>
+  <nav aria-label="Applications"><button type="button" data-app="gallery" aria-pressed="true" disabled>Gallery</button><button type="button" data-app="level" aria-pressed="false" disabled>Level</button><button type="button" data-app="moto" aria-pressed="false" disabled>Moto</button></nav>
   <main><div id="terminal" aria-label="Portals terminal gallery"></div></main>
+  <section id="moto-panel" class="moto-panel" aria-label="Moto controls" hidden>
+    <div class="moto-setup">
+      <label for="moto-seed">Route seed</label><input id="moto-seed" type="text" inputmode="numeric" value="42" maxlength="10" pattern="[0-9]+" aria-describedby="moto-hint">
+      <button id="moto-restart" type="button">Restart route</button>
+      <button id="moto-recalibrate" type="button" disabled>Recalibrate</button>
+    </div>
+    <p id="moto-hint">Start, then release and hold your phone steady.</p>
+    <div class="moto-pedals">
+      <button id="moto-brake" class="moto-pedal" type="button" aria-pressed="false">Brake</button>
+      <button id="moto-center" class="moto-center" type="button">Start</button>
+      <button id="moto-gas" class="moto-pedal" type="button" aria-pressed="false">Gas</button>
+    </div>
+  </section>
   <p id="status" role="status" data-state="loading">Loading gallery…</p>
-  <script type="module" src="./main.js?v=51e48aad969c37631943a58ea64b89d956300a92d3dcd460a2975dc8454c114c"></script>
+  <script type="module" src="./main.js?v=e09c95614f746e34a0a6a95dc116ed9d6bab03ba77fbebd261eabdb1775d05d1"></script>
 </body>
 </html>

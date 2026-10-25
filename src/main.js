@@ -8,12 +8,14 @@ import { createTerminalBridge } from './terminal_bridge.js';
 import { createTelegramHost } from './telegram_host.js';
 import { createTouchInput } from './touch_input.js';
 import { createOrientationInput } from './orientation_input.js';
+import { createMotoInput } from './moto_input.js';
 
 const DEFAULT_FONT_SIZE = 18;
 const MIN_FONT_SIZE = 10;
 const APPS = [
   { name: 'Gallery', title: 'Portals gallery', columns: 22, rows: 11 },
-  { name: 'Level', title: 'Phone level', columns: 25, rows: 19 }
+  { name: 'Level', title: 'Phone level', columns: 25, rows: 19 },
+  { name: 'Moto', title: 'Moto', columns: 32, rows: 20 }
 ];
 const RUNTIME_VERSION = __PORTALS_RUNTIME_VERSION__;
 const status = document.querySelector('#status');
@@ -25,6 +27,14 @@ let suspended = false;
 let frame = null;
 let touchInput;
 let orientation;
+let motoInput;
+let recalibrateInput;
+let preparing = false;
+let recalibrating = false;
+let motoState = -1;
+const motoPanel = document.querySelector('#moto-panel');
+const motoCenter = document.querySelector('#moto-center');
+const seedInput = document.querySelector('#moto-seed');
 let selectedApp = 0;
 let currentApp = -1;
 let session = 0;
@@ -52,8 +62,9 @@ const bridge = createTerminalBridge(terminal);
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 orientation = createOrientationInput({
-  onSample: sample => sensorCall(sample.session, () =>
-    module._portals_orientation(sample.session, sample.beta, sample.gamma, sample.angle)),
+  onSample: sample => sensorCall(sample.session, () => currentApp === 2
+    ? module._portals_moto_sample(sample.session, sample.beta, sample.gamma, sample.angle, performance.now())
+    : module._portals_orientation(sample.session, sample.beta, sample.gamma, sample.angle)),
   onState: update => sensorCall(update.session, () =>
     module._portals_sensor_state(update.session, { unavailable: 0, waiting: 1, paused: 2 }[update.state]))
 });
@@ -66,9 +77,11 @@ function scheduleStep() {
 }
 
 function setSuspended(value) {
+  if (value) pauseMoto();
   suspended = value;
   orientation?.pause(value);
   touchInput?.cancel();
+  recalibrateInput?.cancel();
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
   scheduleStep();
@@ -87,6 +100,9 @@ function finish(error) {
   active = false;
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
+  motoInput?.cancel();
+  recalibrateInput?.cancel();
+  motoPanel.hidden = true;
   orientation?.dispose();
   appButtons.forEach(button => { button.disabled = true; });
   host.dispose();
@@ -105,13 +121,18 @@ function step() {
   frame = null;
   if (!active || suspended) return;
   try {
+    if (currentApp === 2 && !switching) module._portals_moto_tick(session, performance.now());
     const result = module._portals_step();
     if (result < 0) {
       finish(messageFromWasm());
       return;
     }
     syncScene();
+    if (currentApp === 2 && !switching) syncMoto();
     if (result === 1) {
+      motoInput?.cancel();
+      recalibrateInput?.cancel();
+      motoPanel.hidden = true;
       active = false;
       switching = false;
       session = 0;
@@ -119,7 +140,7 @@ function step() {
       orientation.deactivate();
       touchInput?.cancel();
       status.dataset.state = 'finished';
-      status.textContent = 'Finished. Choose Gallery or Level to start.';
+      status.textContent = 'Finished. Choose Gallery, Level or Moto to start.';
       return;
     }
     scheduleStep();
@@ -129,7 +150,7 @@ function step() {
 }
 
 function sensorCall(tag, callback) {
-  if (closed || !active || switching || currentApp !== 1 || tag !== session) return;
+  if (closed || !active || switching || ![1, 2].includes(currentApp) || tag !== session) return;
   try {
     if (callback() < 0) finish(messageFromWasm());
   } catch (error) { finish(error.message || String(error)); }
@@ -142,25 +163,35 @@ function syncScene() {
   currentApp = app;
   session = nextSession;
   switching = false;
-  terminal.textarea.readOnly = app === 1;
-  terminal.textarea.inputMode = app === 1 ? 'none' : 'text';
+  terminal.textarea.readOnly = app !== 0;
+  terminal.textarea.inputMode = app !== 0 ? 'none' : 'text';
   document.querySelector('h1').textContent = APPS[app].title;
   container.setAttribute('aria-label', `Portals terminal ${APPS[app].name.toLowerCase()}`);
   status.dataset.state = 'running';
-  status.textContent = 'Tab / Shift+Tab: focus · Enter: activate · F2: theme · F10: quit.';
-  if (app === 1) orientation.activate(session);
+  status.textContent = app === 2 ? 'Experimental ride · Tilt steering needs Telegram sensors.' :
+    'Tab / Shift+Tab: focus · Enter: activate · F2: theme · F10: quit.';
+  motoPanel.hidden = app !== 2;
+  if (app === 2) {
+    motoState = -1;
+    applySeed();
+    syncMoto();
+  }
+  if (app === 1 || app === 2) orientation.activate(session);
   else { orientation.deactivate(); terminal.focus(); }
 }
 
 function selectApp(app) {
   if (closed || !module || (active && !switching && currentApp === app)) return;
   try {
+    motoInput?.cancel();
+    recalibrateInput?.cancel();
+    motoPanel.hidden = true;
     orientation.deactivate();
     touchInput?.cancel();
     switching = true;
     session = 0;
     selectedApp = app;
-    if (app === 1) terminal.blur();
+    if (app !== 0) terminal.blur();
     appButtons.forEach((button, index) => button.setAttribute('aria-pressed', String(index === app)));
     if (module._portals_select_app(app) < 0) { finish(messageFromWasm()); return; }
     active = true;
@@ -200,6 +231,8 @@ async function start() {
   listeners.push(terminal.onResize(({ cols, rows }) => {
     try {
       touchInput.cancel();
+      motoInput?.cancel();
+      recalibrateInput?.cancel();
       if (!closed && module._portals_resize(cols, rows) < 0) finish(messageFromWasm());
     } catch (error) {
       finish(error.message || String(error));
@@ -207,7 +240,7 @@ async function start() {
   }));
   resizeObserver = new ResizeObserver(() => { if (!closed) resizeTerminal(); });
   resizeObserver.observe(container);
-  terminal.focus();
+  if (currentApp === 0) terminal.focus();
   host.ready();
   scheduleStep();
 }
@@ -246,6 +279,98 @@ function sendInput(text) {
     finish(error.message || String(error));
   }
 }
+
+function motoCall(callback) {
+  if (closed || !active || switching || currentApp !== 2 || !session) return;
+  try {
+    if (callback() < 0) finish(messageFromWasm());
+  } catch (error) { finish(error.message || String(error)); }
+}
+
+function motoAction(action) {
+  motoCall(() => module._portals_moto_action(session, action, performance.now()));
+}
+
+function pauseMoto() {
+  motoInput?.cancel();
+  recalibrateInput?.cancel();
+  motoAction(3);
+}
+
+function applySeed() {
+  const value = seedInput.value.trim();
+  const valid = /^\d{1,10}$/.test(value) && Number(value) <= 0xffffffff;
+  seedInput.setCustomValidity(valid ? '' : 'Enter a whole seed from 0 to 4294967295.');
+  if (!valid) { seedInput.reportValidity(); return false; }
+  motoCall(() => module._portals_moto_seed(session, Number(value)));
+  return true;
+}
+
+function syncMoto() {
+  const previous = motoState;
+  motoState = module._portals_moto_state(session);
+  if (motoState === 6 && previous !== 6) {
+    motoInput?.cancel();
+    recalibrateInput?.cancel();
+  }
+  const labels = ['Start', 'Release to prepare', 'Hold steady', 'Hold steady', 'Get ready', 'Pause', 'Continue'];
+  const label = labels[motoState] || 'Start';
+  if (motoCenter.textContent !== label) motoCenter.textContent = label;
+  // Never disable an in-flight hold: doing so can suppress its normal pointerup.
+  motoCenter.disabled = !motoInput?.isHeld() && ([2, 3, 4].includes(motoState) ||
+    (motoState === 6 && !module._portals_moto_can_resume(session)));
+  seedInput.disabled = motoState !== 0;
+  document.querySelector('#moto-recalibrate').disabled = motoState !== 6 && !recalibrating;
+  const names = ['ready', 'held', 'settling', 'collecting', 'countdown', 'racing', 'paused'];
+  motoPanel.dataset.state = names[motoState] || 'ready';
+  const hints = [
+    'Tilt to steer. Tilt away for gas, towards you to brake. Start, then release and hold steady.',
+    'Release the centre button. Your comfortable grip will become neutral.',
+    'Keep your phone steady and release both pedals.',
+    'Measuring neutral. Keep steady and release both pedals.',
+    'Ready. Neutral stays fixed during the race.',
+    'Tilt to steer. Hold Gas or Brake to override the pedals. Centre pauses.',
+    module._portals_moto_can_resume(session) ? 'Paused. Continue keeps neutral; Recalibrate measures it again.' :
+      'Paused. Wait for fresh sensor data, or Recalibrate then release and hold steady.'
+  ];
+  const hint = document.querySelector('#moto-hint');
+  const message = hints[motoState] || hints[0];
+  if (hint.textContent !== message) hint.textContent = message;
+}
+
+motoInput = createMotoInput({
+  gas: document.querySelector('#moto-gas'), brake: document.querySelector('#moto-brake'), center: motoCenter,
+  isActive: () => active && !suspended && !switching && currentApp === 2,
+  onControls: (gas, brake) => motoCall(() => module._portals_moto_controls(session, +gas, +brake, performance.now())),
+  onPrepare() {
+    preparing = motoState === 0;
+    if (preparing) { if (applySeed()) motoAction(0); else preparing = false; }
+    else if (motoState === 5) motoAction(3);
+    else if (motoState === 6) motoAction(4);
+  },
+  onRelease() { if (preparing) motoAction(1); preparing = false; },
+  onCancel() { if (preparing) motoAction(2); preparing = false; }
+});
+listeners.push(motoInput);
+const recalibrate = document.querySelector('#moto-recalibrate');
+recalibrateInput = createMotoInput({
+  center: recalibrate,
+  isActive: () => active && !suspended && !switching && currentApp === 2,
+  onControls() {},
+  onPrepare() { recalibrating = motoState === 6; if (recalibrating) motoAction(5); },
+  onRelease() { if (recalibrating) motoAction(1); recalibrating = false; },
+  onCancel() { if (recalibrating) motoAction(2); recalibrating = false; }
+});
+listeners.push(recalibrateInput);
+// Recalibration can change state while the button is still held; release must still arrive.
+const restart = () => { motoInput.cancel(); recalibrateInput.cancel(); motoAction(6); syncMoto(); };
+const restartButton = document.querySelector('#moto-restart');
+restartButton.addEventListener('click', restart);
+window.addEventListener('blur', pauseMoto);
+listeners.push({ dispose() {
+  restartButton.removeEventListener('click', restart);
+  window.removeEventListener('blur', pauseMoto);
+} });
 
 window.addEventListener('pagehide', () => finish(), { once: true });
 try {

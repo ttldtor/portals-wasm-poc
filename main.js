@@ -9496,14 +9496,134 @@ function createOrientationInput({ window: window2 = globalThis.window, onSample,
   };
 }
 
+// src/moto_input.js
+function createMotoInput({ gas, brake, center, onControls, onPrepare, onRelease, onCancel, isActive }) {
+  const disposers = [];
+  const held = new Map([gas, brake].filter(Boolean).map((button) => [button, /* @__PURE__ */ new Set()]));
+  let centerPointer = null;
+  let centerKey = null;
+  let disposed = false;
+  function listen(target, name, handler) {
+    target.addEventListener(name, handler, { passive: false });
+    disposers.push(() => target.removeEventListener(name, handler));
+  }
+  function controls() {
+    for (const [button, pointers] of held) button.setAttribute("aria-pressed", String(pointers.size > 0));
+    onControls((held.get(gas)?.size || 0) > 0, (held.get(brake)?.size || 0) > 0);
+  }
+  function releaseCapture(button, id) {
+    if (button.hasPointerCapture(id)) button.releasePointerCapture(id);
+  }
+  for (const [button, pointers] of held) {
+    listen(button, "pointerdown", (event) => {
+      event.preventDefault();
+      if (disposed || !isActive() || event.button !== 0 || button.disabled) return;
+      pointers.add(event.pointerId);
+      button.setPointerCapture(event.pointerId);
+      controls();
+    });
+    const release = (event) => {
+      if (!pointers.delete(event.pointerId)) return;
+      event.preventDefault();
+      releaseCapture(button, event.pointerId);
+      controls();
+    };
+    for (const name of ["pointerup", "pointercancel", "lostpointercapture"]) listen(button, name, release);
+    listen(button, "keydown", (event) => {
+      if (!["Enter", " "].includes(event.key)) return;
+      event.preventDefault();
+      if (disposed || !isActive() || button.disabled || event.repeat) return;
+      pointers.add(`key:${event.key}`);
+      controls();
+    });
+    listen(button, "keyup", (event) => {
+      if (!pointers.delete(`key:${event.key}`)) return;
+      event.preventDefault();
+      controls();
+    });
+    listen(button, "blur", () => {
+      let changed = false;
+      for (const id of [...pointers]) if (typeof id === "string") {
+        pointers.delete(id);
+        changed = true;
+      }
+      if (changed) controls();
+    });
+    listen(button, "click", (event) => event.preventDefault());
+  }
+  listen(center, "pointerdown", (event) => {
+    event.preventDefault();
+    if (disposed || !isActive() || event.button !== 0 || center.disabled || centerPointer !== null || centerKey !== null) return;
+    centerPointer = event.pointerId;
+    center.setPointerCapture(event.pointerId);
+    onPrepare();
+  });
+  function releaseCenter(event, normal) {
+    if (centerPointer !== event.pointerId) return;
+    const previous = centerPointer;
+    centerPointer = null;
+    releaseCapture(center, previous);
+    event.preventDefault();
+    if (normal && !disposed && isActive()) onRelease();
+    else onCancel();
+  }
+  listen(center, "pointerup", (event) => releaseCenter(event, true));
+  listen(center, "pointercancel", (event) => releaseCenter(event, false));
+  listen(center, "lostpointercapture", (event) => releaseCenter(event, false));
+  listen(center, "keydown", (event) => {
+    if (!["Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    if (event.repeat || disposed || !isActive() || center.disabled || centerKey !== null || centerPointer !== null) return;
+    centerKey = event.key;
+    onPrepare();
+  });
+  listen(center, "keyup", (event) => {
+    if (centerKey !== event.key) return;
+    event.preventDefault();
+    centerKey = null;
+    if (!disposed && isActive()) onRelease();
+    else onCancel();
+  });
+  listen(center, "click", (event) => {
+    event.preventDefault();
+    if (event.detail !== 0 || disposed || !isActive() || center.disabled || centerPointer !== null || centerKey !== null) return;
+    onPrepare();
+    onRelease();
+  });
+  function cancel() {
+    const previous = centerPointer;
+    const preparing2 = previous !== null || centerKey !== null;
+    centerPointer = null;
+    centerKey = null;
+    if (previous !== null) releaseCapture(center, previous);
+    for (const [button, pointers] of held) {
+      const ids = [...pointers];
+      pointers.clear();
+      for (const id of ids) if (typeof id === "number") releaseCapture(button, id);
+    }
+    controls();
+    if (preparing2) onCancel();
+  }
+  listen(center, "blur", () => {
+    if (centerKey !== null) cancel();
+  });
+  return { cancel, isHeld: () => centerPointer !== null || centerKey !== null, dispose() {
+    if (disposed) return;
+    cancel();
+    disposed = true;
+    for (const dispose of disposers) dispose();
+  } };
+}
+
 // src/main.js
 var DEFAULT_FONT_SIZE = 18;
 var MIN_FONT_SIZE = 10;
 var APPS = [
   { name: "Gallery", title: "Portals gallery", columns: 22, rows: 11 },
-  { name: "Level", title: "Phone level", columns: 25, rows: 19 }
+  { name: "Level", title: "Phone level", columns: 25, rows: 19 },
+  { name: "Moto", title: "Moto", columns: 32, rows: 20 }
 ];
-var RUNTIME_VERSION = "f56af09a0c0cf07a58f5232fd4a2084ef89a369255e98170a5fd0acc2c62c176";
+var RUNTIME_VERSION = "da83c5fe7b7ba7ac3781e96d930daf7ab30a069476b7015e9eb94fd6d4119b09";
 var status = document.querySelector("#status");
 var container = document.querySelector("#terminal");
 var module;
@@ -9513,6 +9633,14 @@ var suspended = false;
 var frame = null;
 var touchInput;
 var orientation;
+var motoInput;
+var recalibrateInput;
+var preparing = false;
+var recalibrating = false;
+var motoState = -1;
+var motoPanel = document.querySelector("#moto-panel");
+var motoCenter = document.querySelector("#moto-center");
+var seedInput = document.querySelector("#moto-seed");
 var selectedApp = 0;
 var currentApp = -1;
 var session = 0;
@@ -9534,7 +9662,7 @@ var bridge = createTerminalBridge(terminal);
 var encoder = new TextEncoder();
 var decoder = new TextDecoder();
 orientation = createOrientationInput({
-  onSample: (sample) => sensorCall(sample.session, () => module._portals_orientation(sample.session, sample.beta, sample.gamma, sample.angle)),
+  onSample: (sample) => sensorCall(sample.session, () => currentApp === 2 ? module._portals_moto_sample(sample.session, sample.beta, sample.gamma, sample.angle, performance.now()) : module._portals_orientation(sample.session, sample.beta, sample.gamma, sample.angle)),
   onState: (update) => sensorCall(update.session, () => module._portals_sensor_state(update.session, { unavailable: 0, waiting: 1, paused: 2 }[update.state]))
 });
 orientation.pause(suspended);
@@ -9544,9 +9672,11 @@ function scheduleStep() {
   if (active && !suspended && frame === null) frame = requestAnimationFrame(step);
 }
 function setSuspended(value) {
+  if (value) pauseMoto();
   suspended = value;
   orientation?.pause(value);
   touchInput?.cancel();
+  recalibrateInput?.cancel();
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
   scheduleStep();
@@ -9563,6 +9693,9 @@ function finish(error) {
   active = false;
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
+  motoInput?.cancel();
+  recalibrateInput?.cancel();
+  motoPanel.hidden = true;
   orientation?.dispose();
   appButtons.forEach((button) => {
     button.disabled = true;
@@ -9581,13 +9714,18 @@ function step() {
   frame = null;
   if (!active || suspended) return;
   try {
+    if (currentApp === 2 && !switching) module._portals_moto_tick(session, performance.now());
     const result = module._portals_step();
     if (result < 0) {
       finish(messageFromWasm());
       return;
     }
     syncScene();
+    if (currentApp === 2 && !switching) syncMoto();
     if (result === 1) {
+      motoInput?.cancel();
+      recalibrateInput?.cancel();
+      motoPanel.hidden = true;
       active = false;
       switching = false;
       session = 0;
@@ -9595,7 +9733,7 @@ function step() {
       orientation.deactivate();
       touchInput?.cancel();
       status.dataset.state = "finished";
-      status.textContent = "Finished. Choose Gallery or Level to start.";
+      status.textContent = "Finished. Choose Gallery, Level or Moto to start.";
       return;
     }
     scheduleStep();
@@ -9604,7 +9742,7 @@ function step() {
   }
 }
 function sensorCall(tag, callback) {
-  if (closed || !active || switching || currentApp !== 1 || tag !== session) return;
+  if (closed || !active || switching || ![1, 2].includes(currentApp) || tag !== session) return;
   try {
     if (callback() < 0) finish(messageFromWasm());
   } catch (error) {
@@ -9618,13 +9756,19 @@ function syncScene() {
   currentApp = app;
   session = nextSession;
   switching = false;
-  terminal.textarea.readOnly = app === 1;
-  terminal.textarea.inputMode = app === 1 ? "none" : "text";
+  terminal.textarea.readOnly = app !== 0;
+  terminal.textarea.inputMode = app !== 0 ? "none" : "text";
   document.querySelector("h1").textContent = APPS[app].title;
   container.setAttribute("aria-label", `Portals terminal ${APPS[app].name.toLowerCase()}`);
   status.dataset.state = "running";
-  status.textContent = "Tab / Shift+Tab: focus \xB7 Enter: activate \xB7 F2: theme \xB7 F10: quit.";
-  if (app === 1) orientation.activate(session);
+  status.textContent = app === 2 ? "Experimental ride \xB7 Tilt steering needs Telegram sensors." : "Tab / Shift+Tab: focus \xB7 Enter: activate \xB7 F2: theme \xB7 F10: quit.";
+  motoPanel.hidden = app !== 2;
+  if (app === 2) {
+    motoState = -1;
+    applySeed();
+    syncMoto();
+  }
+  if (app === 1 || app === 2) orientation.activate(session);
   else {
     orientation.deactivate();
     terminal.focus();
@@ -9633,12 +9777,15 @@ function syncScene() {
 function selectApp(app) {
   if (closed || !module || active && !switching && currentApp === app) return;
   try {
+    motoInput?.cancel();
+    recalibrateInput?.cancel();
+    motoPanel.hidden = true;
     orientation.deactivate();
     touchInput?.cancel();
     switching = true;
     session = 0;
     selectedApp = app;
-    if (app === 1) terminal.blur();
+    if (app !== 0) terminal.blur();
     appButtons.forEach((button, index) => button.setAttribute("aria-pressed", String(index === app)));
     if (module._portals_select_app(app) < 0) {
       finish(messageFromWasm());
@@ -9683,6 +9830,8 @@ async function start() {
   listeners.push(terminal.onResize(({ cols, rows }) => {
     try {
       touchInput.cancel();
+      motoInput?.cancel();
+      recalibrateInput?.cancel();
       if (!closed && module._portals_resize(cols, rows) < 0) finish(messageFromWasm());
     } catch (error) {
       finish(error.message || String(error));
@@ -9692,7 +9841,7 @@ async function start() {
     if (!closed) resizeTerminal();
   });
   resizeObserver.observe(container);
-  terminal.focus();
+  if (currentApp === 0) terminal.focus();
   host.ready();
   scheduleStep();
 }
@@ -9731,6 +9880,118 @@ function sendInput(text) {
     finish(error.message || String(error));
   }
 }
+function motoCall(callback) {
+  if (closed || !active || switching || currentApp !== 2 || !session) return;
+  try {
+    if (callback() < 0) finish(messageFromWasm());
+  } catch (error) {
+    finish(error.message || String(error));
+  }
+}
+function motoAction(action) {
+  motoCall(() => module._portals_moto_action(session, action, performance.now()));
+}
+function pauseMoto() {
+  motoInput?.cancel();
+  recalibrateInput?.cancel();
+  motoAction(3);
+}
+function applySeed() {
+  const value = seedInput.value.trim();
+  const valid = /^\d{1,10}$/.test(value) && Number(value) <= 4294967295;
+  seedInput.setCustomValidity(valid ? "" : "Enter a whole seed from 0 to 4294967295.");
+  if (!valid) {
+    seedInput.reportValidity();
+    return false;
+  }
+  motoCall(() => module._portals_moto_seed(session, Number(value)));
+  return true;
+}
+function syncMoto() {
+  const previous = motoState;
+  motoState = module._portals_moto_state(session);
+  if (motoState === 6 && previous !== 6) {
+    motoInput?.cancel();
+    recalibrateInput?.cancel();
+  }
+  const labels = ["Start", "Release to prepare", "Hold steady", "Hold steady", "Get ready", "Pause", "Continue"];
+  const label = labels[motoState] || "Start";
+  if (motoCenter.textContent !== label) motoCenter.textContent = label;
+  motoCenter.disabled = !motoInput?.isHeld() && ([2, 3, 4].includes(motoState) || motoState === 6 && !module._portals_moto_can_resume(session));
+  seedInput.disabled = motoState !== 0;
+  document.querySelector("#moto-recalibrate").disabled = motoState !== 6 && !recalibrating;
+  const names = ["ready", "held", "settling", "collecting", "countdown", "racing", "paused"];
+  motoPanel.dataset.state = names[motoState] || "ready";
+  const hints = [
+    "Tilt to steer. Tilt away for gas, towards you to brake. Start, then release and hold steady.",
+    "Release the centre button. Your comfortable grip will become neutral.",
+    "Keep your phone steady and release both pedals.",
+    "Measuring neutral. Keep steady and release both pedals.",
+    "Ready. Neutral stays fixed during the race.",
+    "Tilt to steer. Hold Gas or Brake to override the pedals. Centre pauses.",
+    module._portals_moto_can_resume(session) ? "Paused. Continue keeps neutral; Recalibrate measures it again." : "Paused. Wait for fresh sensor data, or Recalibrate then release and hold steady."
+  ];
+  const hint = document.querySelector("#moto-hint");
+  const message = hints[motoState] || hints[0];
+  if (hint.textContent !== message) hint.textContent = message;
+}
+motoInput = createMotoInput({
+  gas: document.querySelector("#moto-gas"),
+  brake: document.querySelector("#moto-brake"),
+  center: motoCenter,
+  isActive: () => active && !suspended && !switching && currentApp === 2,
+  onControls: (gas, brake) => motoCall(() => module._portals_moto_controls(session, +gas, +brake, performance.now())),
+  onPrepare() {
+    preparing = motoState === 0;
+    if (preparing) {
+      if (applySeed()) motoAction(0);
+      else preparing = false;
+    } else if (motoState === 5) motoAction(3);
+    else if (motoState === 6) motoAction(4);
+  },
+  onRelease() {
+    if (preparing) motoAction(1);
+    preparing = false;
+  },
+  onCancel() {
+    if (preparing) motoAction(2);
+    preparing = false;
+  }
+});
+listeners.push(motoInput);
+var recalibrate = document.querySelector("#moto-recalibrate");
+recalibrateInput = createMotoInput({
+  center: recalibrate,
+  isActive: () => active && !suspended && !switching && currentApp === 2,
+  onControls() {
+  },
+  onPrepare() {
+    recalibrating = motoState === 6;
+    if (recalibrating) motoAction(5);
+  },
+  onRelease() {
+    if (recalibrating) motoAction(1);
+    recalibrating = false;
+  },
+  onCancel() {
+    if (recalibrating) motoAction(2);
+    recalibrating = false;
+  }
+});
+listeners.push(recalibrateInput);
+var restart = () => {
+  motoInput.cancel();
+  recalibrateInput.cancel();
+  motoAction(6);
+  syncMoto();
+};
+var restartButton = document.querySelector("#moto-restart");
+restartButton.addEventListener("click", restart);
+window.addEventListener("blur", pauseMoto);
+listeners.push({ dispose() {
+  restartButton.removeEventListener("click", restart);
+  window.removeEventListener("blur", pauseMoto);
+} });
 window.addEventListener("pagehide", () => finish(), { once: true });
 try {
   await start();
