@@ -611,7 +611,7 @@
 +      if (now >= raceAt_) {
 +        state_ = MotoState::RACING;
 +        accumulatorMs_ = 0;
-+        message_ = "Use the controls to steer and ride";
++        message_ = "Use controls to steer and ride";
 +      }
 +
 +      return;
@@ -726,7 +726,7 @@
 +    holdOrigin_ = origin;
 +    state_ = MotoState::HELD;
 +    clearWindow();
-+    message_ = "Release Start; let controls settle";
++    message_ = "Release Start; controls settle";
 +  }
 +
 +  void restartWindow(double now) noexcept {

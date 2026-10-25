@@ -9711,7 +9711,7 @@ var APPS = [
   { name: "Level", title: "Phone level", columns: 25, rows: 19 },
   { name: "Moto", title: "Moto", columns: 32, rows: 20 }
 ];
-var RUNTIME_VERSION = "a32efe8f0e807e1b72501c035df48f20f57826edeb6ce2033a3d731665d80aa5";
+var RUNTIME_VERSION = "d16f8b8e679438bc1ac79847a89c1e9e3ecb3ef542a46d7770b051570750940b";
 var status = document.querySelector("#status");
 var container = document.querySelector("#terminal");
 var module;

@@ -7,7 +7,7 @@
   "runtime_patch": "source/portals-wasm-poc.patch",
   "runtime_patch_sha256": "0a38d601480fbb8ced77834e62591cd8a469b200102a7ba7361f905232a2614d",
   "toolchain": "Emscripten 6.0.12, native Wasm exceptions; no Asyncify/JSPI/pthreads",
-  "portals_gallery_wasm_sha256": "2277609828bc25923e7fc540107b443176874b7d84de9004511c08c2432a7d83",
+  "portals_gallery_wasm_sha256": "002fd4676735dbdd642d8d687e126011c87ea1eafac7765cdbf3593f88c00b89",
   "portals_gallery_loader_sha256": "0f6309db48953c7251e18841ff5fd991f06cbb99904a13e315ce7e8ba94e3f06",
   "runtime_verification": "PRTLS-140: Windows/MSVC Debug/Release164 each, SDK smoke, Chromium browser6 each; native examples27 unchanged.",
   "telegram_verification": "Historical: user confirmed PRTLS-147 fit and input on Android. Current Gallery/Level selector and physical DeviceOrientation require device retesting. Chromium SDK/viewport simulations are separate.",
@@ -24,6 +24,6 @@
   "runtime_apps_verification": "PRTLS-153: Debug/Release Emscripten builds, SDK smoke and real export probes PASS; Node30/30, Chromium25 existing scenarios plus8 app scenarios PASS locally. Four-patch replay and27 native-example raw hashes match. Independent bounded ownership/lifetime review with Node15 and Release export probe PASS. Physical Telegram orientation qualification remains pending.",
   "runtime_moto_patch": "source/moto.patch",
   "runtime_moto_verification": "Emscripten 6.0.12 Debug/Release and SDK/real-WASM ABI smoke PASS; model14 cases/1293 assertions in both modes, Node36/36 and local Chrome155 browser37/37 PASS. Independent bounded state/lifetime review completed, five-patch replay matches and native example source remains unchanged. Physical Telegram sensor/display qualification remains pending.",
-  "runtime_moto_patch_sha256": "d6fb097ccce6e0d376cd238d57ee77c592bb4d5cf5d0fc8bb5df22a312c09023",
+  "runtime_moto_patch_sha256": "8fef0a8b4589725441b9ae7e2e1535fc2bc0ecf9375c210c3463b4d798662a8d",
   "runtime_moto_keyboard_verification": "PRTLS-274: desktop arrows use an explicit keyboard provider through the existing sample/control ABI; Telegram mobile tilt input remains selected. Debug/Release model14 cases/1293 assertions and real-WASM ABI probes PASS; Node42/42 and Chrome155 local browser41/41 PASS. Independent bounded input/lifecycle review found no required fixes. Updated six-file Moto patch replay matches raw source bytes. Physical device qualification remains pending."
 }
