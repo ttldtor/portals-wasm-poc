@@ -23,7 +23,8 @@ async function openMoto(page, sensor = true) {
           stop(callback) { motoProbe.stops++; callback?.(true); }
         }
       } };
-    ` : '' }));
+    ` : `window.Telegram = { WebApp: { platform: 'android', isActive: true,
+      isVersionAtLeast: () => true, onEvent() {}, offEvent() {}, ready() {}, expand() {} } };` }));
   await page.goto('./');
   await expect(page.locator('#status')).toHaveAttribute('data-state', 'running');
   await page.getByRole('button', { name: 'Moto', exact: true }).click();

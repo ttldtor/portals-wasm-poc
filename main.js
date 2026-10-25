@@ -9615,6 +9615,94 @@ function createMotoInput({ gas, brake, center, onControls, onPrepare, onRelease,
   } };
 }
 
+// src/moto_keyboard.js
+var MOBILE_PLATFORMS = /* @__PURE__ */ new Set(["android", "android_x", "ios"]);
+var DESKTOP_PLATFORMS = /* @__PURE__ */ new Set(["tdesktop", "macos"]);
+var ARROW_KEYS = /* @__PURE__ */ new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
+var SAMPLE_INTERVAL_MS = 50;
+var STEERING_RADIANS = Math.PI / 4;
+function isDesktopMoto({
+  platform = "browser",
+  navigator: navigator2 = globalThis.navigator,
+  matchMedia = globalThis.matchMedia?.bind(globalThis)
+} = {}) {
+  if (MOBILE_PLATFORMS.has(platform)) return false;
+  if (DESKTOP_PLATFORMS.has(platform)) return true;
+  if (navigator2?.userAgentData?.mobile || /Android|iPhone|iPad|iPod/i.test(navigator2?.userAgent || "")) return false;
+  if (navigator2?.platform === "MacIntel" && navigator2.maxTouchPoints > 1) return false;
+  return Boolean(matchMedia?.("(any-hover: hover)").matches && matchMedia?.("(any-pointer: fine)").matches);
+}
+function editing(target) {
+  if (target?.isContentEditable) return true;
+  if (!["INPUT", "TEXTAREA", "SELECT"].includes(target?.tagName)) return false;
+  return !(target.tagName === "TEXTAREA" && target.readOnly && target.classList?.contains("xterm-helper-textarea"));
+}
+function createMotoKeyboard({
+  window: window2 = globalThis.window,
+  document: document2 = globalThis.document,
+  isActive,
+  onControls,
+  onSample
+}) {
+  const held = /* @__PURE__ */ new Set();
+  let lastSampleAt = -Infinity;
+  let disposed = false;
+  function controls() {
+    return {
+      steering: Number(held.has("ArrowRight")) - Number(held.has("ArrowLeft")),
+      gas: held.has("ArrowUp"),
+      brake: held.has("ArrowDown")
+    };
+  }
+  function keydown(event) {
+    if (disposed || !isActive() || !ARROW_KEYS.has(event.key) || editing(event.target) || event.ctrlKey || event.altKey || event.metaKey) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.repeat || held.has(event.key)) return;
+    held.add(event.key);
+    onControls();
+  }
+  function keyup(event) {
+    if (!held.delete(event.key)) return;
+    if (isActive() && !editing(event.target) && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    onControls();
+  }
+  function cancel() {
+    lastSampleAt = -Infinity;
+    if (!held.size) return;
+    held.clear();
+    onControls();
+  }
+  function visibility() {
+    if (document2.hidden) cancel();
+  }
+  window2.addEventListener("keydown", keydown, true);
+  window2.addEventListener("keyup", keyup, true);
+  window2.addEventListener("blur", cancel);
+  document2.addEventListener("visibilitychange", visibility);
+  return {
+    controls,
+    cancel,
+    pump(now, racing) {
+      if (disposed || !isActive() || !Number.isFinite(now) || now < 0 || now - lastSampleAt < SAMPLE_INTERVAL_MS) return;
+      lastSampleAt = now;
+      onSample({ beta: 0, gamma: racing ? controls().steering * STEERING_RADIANS : 0, angle: 0, now });
+    },
+    dispose() {
+      if (disposed) return;
+      cancel();
+      disposed = true;
+      window2.removeEventListener("keydown", keydown, true);
+      window2.removeEventListener("keyup", keyup, true);
+      window2.removeEventListener("blur", cancel);
+      document2.removeEventListener("visibilitychange", visibility);
+    }
+  };
+}
+
 // src/main.js
 var DEFAULT_FONT_SIZE = 18;
 var MIN_FONT_SIZE = 10;
@@ -9623,7 +9711,7 @@ var APPS = [
   { name: "Level", title: "Phone level", columns: 25, rows: 19 },
   { name: "Moto", title: "Moto", columns: 32, rows: 20 }
 ];
-var RUNTIME_VERSION = "da83c5fe7b7ba7ac3781e96d930daf7ab30a069476b7015e9eb94fd6d4119b09";
+var RUNTIME_VERSION = "a32efe8f0e807e1b72501c035df48f20f57826edeb6ce2033a3d731665d80aa5";
 var status = document.querySelector("#status");
 var container = document.querySelector("#terminal");
 var module;
@@ -9635,6 +9723,9 @@ var touchInput;
 var orientation;
 var motoInput;
 var recalibrateInput;
+var keyboardInput;
+var pointerGas = false;
+var pointerBrake = false;
 var preparing = false;
 var recalibrating = false;
 var motoState = -1;
@@ -9647,6 +9738,7 @@ var session = 0;
 var switching = false;
 var appButtons = [...document.querySelectorAll("[data-app]")];
 var host = createTelegramHost(setSuspended);
+var keyboardMode = isDesktopMoto({ platform: host.platform });
 document.querySelector("#environment").textContent = host.telegram ? `Telegram \xB7 ${host.platform}` : "Browser preview";
 var terminal = new Dl({ cursorBlink: false, scrollback: 0, fontSize: DEFAULT_FONT_SIZE, screenReaderMode: true });
 var fit = new o();
@@ -9693,8 +9785,7 @@ function finish(error) {
   active = false;
   if (frame !== null) cancelAnimationFrame(frame);
   frame = null;
-  motoInput?.cancel();
-  recalibrateInput?.cancel();
+  cancelMotoInputs();
   motoPanel.hidden = true;
   orientation?.dispose();
   appButtons.forEach((button) => {
@@ -9714,7 +9805,11 @@ function step() {
   frame = null;
   if (!active || suspended) return;
   try {
-    if (currentApp === 2 && !switching) module._portals_moto_tick(session, performance.now());
+    if (currentApp === 2 && !switching) {
+      const now = performance.now();
+      if (keyboardMode) keyboardInput.pump(now, motoState === 5);
+      module._portals_moto_tick(session, performance.now());
+    }
     const result = module._portals_step();
     if (result < 0) {
       finish(messageFromWasm());
@@ -9723,8 +9818,7 @@ function step() {
     syncScene();
     if (currentApp === 2 && !switching) syncMoto();
     if (result === 1) {
-      motoInput?.cancel();
-      recalibrateInput?.cancel();
+      cancelMotoInputs();
       motoPanel.hidden = true;
       active = false;
       switching = false;
@@ -9761,24 +9855,24 @@ function syncScene() {
   document.querySelector("h1").textContent = APPS[app].title;
   container.setAttribute("aria-label", `Portals terminal ${APPS[app].name.toLowerCase()}`);
   status.dataset.state = "running";
-  status.textContent = app === 2 ? "Experimental ride \xB7 Tilt steering needs Telegram sensors." : "Tab / Shift+Tab: focus \xB7 Enter: activate \xB7 F2: theme \xB7 F10: quit.";
+  status.textContent = app === 2 ? keyboardMode ? "Experimental ride \xB7 Keyboard arrows" : "Experimental ride \xB7 Tilt steering needs Telegram sensors." : "Tab / Shift+Tab: focus \xB7 Enter: activate \xB7 F2: theme \xB7 F10: quit.";
   motoPanel.hidden = app !== 2;
+  motoPanel.dataset.input = keyboardMode ? "keyboard" : "tilt";
   if (app === 2) {
     motoState = -1;
     applySeed();
     syncMoto();
   }
-  if (app === 1 || app === 2) orientation.activate(session);
+  if (app === 1 || app === 2 && !keyboardMode) orientation.activate(session);
   else {
     orientation.deactivate();
-    terminal.focus();
+    if (app === 0) terminal.focus();
   }
 }
 function selectApp(app) {
   if (closed || !module || active && !switching && currentApp === app) return;
   try {
-    motoInput?.cancel();
-    recalibrateInput?.cancel();
+    cancelMotoInputs();
     motoPanel.hidden = true;
     orientation.deactivate();
     touchInput?.cancel();
@@ -9830,8 +9924,7 @@ async function start() {
   listeners.push(terminal.onResize(({ cols, rows }) => {
     try {
       touchInput.cancel();
-      motoInput?.cancel();
-      recalibrateInput?.cancel();
+      cancelMotoInputs();
       if (!closed && module._portals_resize(cols, rows) < 0) finish(messageFromWasm());
     } catch (error) {
       finish(error.message || String(error));
@@ -9891,9 +9984,22 @@ function motoCall(callback) {
 function motoAction(action) {
   motoCall(() => module._portals_moto_action(session, action, performance.now()));
 }
-function pauseMoto() {
+function cancelMotoInputs() {
   motoInput?.cancel();
   recalibrateInput?.cancel();
+  keyboardInput?.cancel();
+}
+function updateMotoControls() {
+  const keyboard = keyboardInput?.controls();
+  motoCall(() => module._portals_moto_controls(
+    session,
+    +(pointerGas || Boolean(keyboard?.gas)),
+    +(pointerBrake || Boolean(keyboard?.brake)),
+    performance.now()
+  ));
+}
+function pauseMoto() {
+  cancelMotoInputs();
   motoAction(3);
 }
 function applySeed() {
@@ -9911,10 +10017,9 @@ function syncMoto() {
   const previous = motoState;
   motoState = module._portals_moto_state(session);
   if (motoState === 6 && previous !== 6) {
-    motoInput?.cancel();
-    recalibrateInput?.cancel();
+    cancelMotoInputs();
   }
-  const labels = ["Start", "Release to prepare", "Hold steady", "Hold steady", "Get ready", "Pause", "Continue"];
+  const labels = ["Start", "Release to prepare", keyboardMode ? "Preparing" : "Hold steady", keyboardMode ? "Preparing" : "Hold steady", "Get ready", "Pause", "Continue"];
   const label = labels[motoState] || "Start";
   if (motoCenter.textContent !== label) motoCenter.textContent = label;
   motoCenter.disabled = !motoInput?.isHeld() && ([2, 3, 4].includes(motoState) || motoState === 6 && !module._portals_moto_can_resume(session));
@@ -9922,7 +10027,15 @@ function syncMoto() {
   document.querySelector("#moto-recalibrate").disabled = motoState !== 6 && !recalibrating;
   const names = ["ready", "held", "settling", "collecting", "countdown", "racing", "paused"];
   motoPanel.dataset.state = names[motoState] || "ready";
-  const hints = [
+  const hints = keyboardMode ? [
+    "Use Left / Right to steer, Up for gas and Down to brake. Press Start, then release.",
+    "Release Start and the gas/brake arrows to prepare.",
+    "Preparing keyboard controls. Release the gas/brake arrows.",
+    "Preparing keyboard controls. Release the gas/brake arrows.",
+    "Get ready. Arrow keys control the race.",
+    "Left / Right: steer \xB7 Up: gas \xB7 Down: brake \xB7 Centre: pause.",
+    "Paused. Continue resumes the route; Recalibrate prepares the controls again."
+  ] : [
     "Tilt to steer. Tilt away for gas, towards you to brake. Start, then release and hold steady.",
     "Release the centre button. Your comfortable grip will become neutral.",
     "Keep your phone steady and release both pedals.",
@@ -9940,7 +10053,11 @@ motoInput = createMotoInput({
   brake: document.querySelector("#moto-brake"),
   center: motoCenter,
   isActive: () => active && !suspended && !switching && currentApp === 2,
-  onControls: (gas, brake) => motoCall(() => module._portals_moto_controls(session, +gas, +brake, performance.now())),
+  onControls(gas, brake) {
+    pointerGas = gas;
+    pointerBrake = brake;
+    updateMotoControls();
+  },
   onPrepare() {
     preparing = motoState === 0;
     if (preparing) {
@@ -9980,8 +10097,7 @@ recalibrateInput = createMotoInput({
 });
 listeners.push(recalibrateInput);
 var restart = () => {
-  motoInput.cancel();
-  recalibrateInput.cancel();
+  cancelMotoInputs();
   motoAction(6);
   syncMoto();
 };
@@ -9992,6 +10108,18 @@ listeners.push({ dispose() {
   restartButton.removeEventListener("click", restart);
   window.removeEventListener("blur", pauseMoto);
 } });
+keyboardInput = createMotoKeyboard({
+  isActive: () => keyboardMode && active && !suspended && !switching && currentApp === 2,
+  onControls: updateMotoControls,
+  onSample: (sample) => motoCall(() => module._portals_moto_sample(
+    session,
+    sample.beta,
+    sample.gamma,
+    sample.angle,
+    sample.now
+  ))
+});
+listeners.push(keyboardInput);
 window.addEventListener("pagehide", () => finish(), { once: true });
 try {
   await start();
